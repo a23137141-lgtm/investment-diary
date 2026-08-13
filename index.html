@@ -12190,6 +12190,47 @@ async function chipRenderFlows(){
   const netOf   = dt => { let n=0; roles.forEach(b=>{ n += (b.daily[dt]||0); }); return Math.round(n); };
   const grossOf = dt => { let g=0; roles.forEach(b=>{ g += Math.abs(b.daily[dt]||0); }); return Math.round(g); };
 
+  // ══ v21.6 牌手力度（白話呈現）══
+  // B＝|牌手淨額|÷扣當沖量：「真實換手中有多少變成牌手的淨部位」。
+  // 絕對水準跨股不可比（大型股 2% 已是大事、小型股 15% 稀鬆平常）→ 一律除以自身近60日中位數，
+  // 呈現「是平常的幾倍」。口徑限制：分點僅前15大買賣超（分子低估）、當沖率為全市場統計非分點層級
+  // （分子分母當沖處理不對稱）→ 只看相對倍數，不看絕對值（相對排名才政權不變）。
+  // A＝gross÷扣當沖量（參與度）只用於「高換手沒方向」單一組合的提示，與對敲偵測互證。
+  const _forceB = {}, _forceA = {};
+  allDates.forEach(function(d){
+    const av = adjVol(d); if(!(av>0)) return;
+    const b = Math.abs(netOf(d))/av, a = grossOf(d)/av;
+    if(isFinite(b)) _forceB[d]=b;
+    if(isFinite(a)) _forceA[d]=a;
+  });
+  const _forceRatio = function(map, dt){
+    const i = allDates.indexOf(dt); if(i<21) return null;
+    const win=[]; for(let k=Math.max(0,i-60); k<i; k++){ const v=map[allDates[k]]; if(v!=null&&v>0) win.push(v); }
+    if(win.length<20) return null;
+    win.sort(function(a,b){return a-b;});
+    const med = win[Math.floor(win.length/2)];
+    return (med>0 && map[dt]!=null) ? map[dt]/med : null;
+  };
+  // 白話註記：每天最多一句、只在極端時出現（≥2x 出力／高換手沒方向／量比≥1.5 且 ≤0.3x 沒出力）
+  const forceNoteOf = function(dt, net, vr){
+    try{
+      const br = _forceRatio(_forceB, dt);
+      if(br==null) return '';
+      const tip = '牌手力度＝|牌手淨額|÷扣當沖量，再跟這檔自己近60日的平常值比。口徑：分點只有前15大買賣超、當沖為全市場統計，故只看「是平常幾倍」不看絕對%。';
+      if(br>=2){
+        return '<span title="'+tip+'" style="cursor:help;color:'+(net>0?'var(--up)':'var(--amber)')+';font-size:9.5px;">💪 牌手'+(net>0?'出力買':'出力賣')+'——力度是平常的 '+br.toFixed(1)+' 倍</span>';
+      }
+      const ar = _forceRatio(_forceA, dt);
+      if(ar!=null && ar>=2 && br<=0.5){
+        return '<span title="'+tip+'　高換手＋低淨額＝大量進出但方向抵銷，常見於對倒或換手，與對敲偵測互相印證。" style="cursor:help;color:var(--t3);font-size:9.5px;">🔁 牌手大量進出但沒方向——對倒／換手味</span>';
+      }
+      if(vr!=null && vr>=1.5 && br<=0.3){
+        return '<span title="'+tip+'" style="cursor:help;color:var(--t3);font-size:9.5px;">😴 量放大但牌手沒出力——這根主要是散戶互相成交出來的</span>';
+      }
+      return '';
+    }catch(_e){ return ''; }
+  };
+
   // ── #4 相對門檻：日均牌手量的15%（下限20張），各檔自適應 ──
   const absSeries = allDates.map(netOf).map(Math.abs).filter(v=>v>0);
   const avgAbs = absSeries.length ? absSeries.reduce((a,b)=>a+b,0)/absSeries.length : 0;
@@ -12344,7 +12385,8 @@ async function chipRenderFlows(){
   // 紀律：對敲判定是5日窗條件 → 註記僅在「當日淨賣≥60%來自嫌疑分點」時出現（條件先定，不事後找切點）。
   const _wash5 = (function(){
     try{
-      const ds = flowDates.slice(-5);
+      // v21.4 窗與門檻對齊站內權威對敲判定（分點窗最近5個交易日；買賣各≥100張、ratio 0.8~1.2、佔5日量>5%）
+      const ds = Object.keys(dayGross).sort().slice(-5);
       if(ds.length < 2) return null;
       const acc = {};
       ds.forEach(function(d){
@@ -12357,8 +12399,9 @@ async function chipRenderFlows(){
       let pv=0; ds.forEach(function(d){ pv += (pMap[d]&&pMap[d].vol)?pMap[d].vol:0; });
       const idSet = {}, names = [];
       Object.keys(acc).forEach(function(k){
-        const o=acc[k], turn=o.b+o.s, na=Math.abs(o.b-o.s);
-        if(turn>=Math.max(200,pv*0.03) && na<turn*0.15){ idSet[k]=1; idSet[o.name]=1; names.push(o.name); }
+        const o=acc[k]; if(o.b<100||o.s<100) return;
+        const ratio=o.b/(o.s||1);
+        if(ratio>=0.8 && ratio<=1.2 && pv>0 && (o.b/pv*100)>5){ idSet[k]=1; idSet[o.name]=1; names.push(o.name); }
       });
       return names.length ? {idSet:idSet, names:names} : null;
     }catch(_e){ return null; }
@@ -12578,6 +12621,7 @@ async function chipRenderFlows(){
           })())
         +'<span title="日RS＝當日個股漲跌%−大盤漲跌%。單日是雜訊，連3日>+0.5%才定調（回測：訊號後20日平均超額+3.9%）——進攻訊號。與累計RS（快照以來整段對大盤，否決用）不同。" style="cursor:help;color:'+(rs==null?'var(--t3)':rs>0?'var(--up)':'var(--dn)')+';">RS'+(rs!=null?((rs>0?'+':'')+rs.toFixed(1)):'—')+'</span>'
         +'<span style="color:'+nc+';" title="牌手＝②【大戶中實選手群】三個買超群裡的所有分點合計（共 '+roles.length+' 家）。下方只列幾家代表，其餘以「其餘N家合計」補齊。">牌手'+(net>0?'+':'')+net.toLocaleString()+'張<span style="font-size:8px;color:var(--t3);">/'+roles.length+'家</span></span>'
+        +forceNoteOf(dt, net, vr)
       +'</div>';
     // #7 編排：只有「有判讀」的日子展開；平淡日一行帶過，但特定分點動作以行內小字保留（壓縮不隱藏）
     const active = jd.hot;
@@ -12786,20 +12830,27 @@ async function chipRenderFlows(){
           let rsSum=0,rsN=0;
           ds.forEach(function(d){ const a=dayChg(d),b=idxChg(d); if(a!=null&&b!=null){rsSum+=(a-b);rsN++;} });
           const wash=[];
+          // v21.4 對敲判定窗與門檻一律對齊站內權威版（主力成本線區的近5日判定）：
+          // 窗＝分點窗最近5個交易日（不是 flowDates 的本週窗，本週可能只有4天）；
+          // 門檻＝買賣各≥100張、ratio 0.8~1.2、買量佔5日量>5%。兩處條件一致才不會一邊成立一邊不成立。
+          const washDs = Object.keys(dayGross).sort().slice(-5);
           try{
             const acc={};
-            ds.forEach(function(d){
+            washDs.forEach(function(d){
               const m=dayGross[d]; if(!m)return;
               Object.keys(m).forEach(function(k){
                 if(!acc[k])acc[k]={name:m[k].name,b:0,s:0};
                 acc[k].b+=m[k].b/1000; acc[k].s+=m[k].s/1000;
               });
             });
-            let pv=0; ds.forEach(function(d){ pv+=(pMap[d]&&pMap[d].vol)?pMap[d].vol:0; });
+            let pv=0; washDs.forEach(function(d){ pv+=(pMap[d]&&pMap[d].vol)?pMap[d].vol:0; });
             Object.keys(acc).forEach(function(k){
-              const o=acc[k],turn=o.b+o.s,na=Math.abs(o.b-o.s);
-              if(turn>=Math.max(200,pv*0.03)&&na<turn*0.15)
-                wash.push({id:k,name:o.name,b:Math.round(o.b),s:Math.round(o.s),pct:pv>0?+(turn/pv*100).toFixed(0):null});
+              const o=acc[k]; if(o.b<100||o.s<100) return;
+              const ratio=o.b/(o.s||1);
+              if(ratio>=0.8&&ratio<=1.2){
+                const pct=pv>0?(o.b/pv*100):0;
+                if(pct>5) wash.push({id:k,name:o.name,b:Math.round(o.b),s:Math.round(o.s),pct:+pct.toFixed(0)});
+              }
             });
             wash.sort(function(a,b){return (b.b+b.s)-(a.b+a.s);});
           }catch(_e){}
@@ -12827,7 +12878,7 @@ async function chipRenderFlows(){
             +'<div>股價 <b style="color:'+_pc+';font-family:var(--mono);">'+(chgPct>=0?'+':'')+chgPct.toFixed(1)+'%</b>'
             +(rsN?'　比大盤 <b style="font-family:var(--mono);color:'+(rsSum>=0?'var(--up)':'var(--dn)')+';">'+(rsSum>=0?'+':'')+rsSum.toFixed(1)+'</b>':'')
             +'　牌手合計 <b style="color:'+_c+';font-family:var(--mono);">'+(cum>=0?'+':'')+Math.round(cum).toLocaleString()+'</b> 張'
-            +((cumEx!=null)?('｜剔除對敲後 <b style="color:'+(cumEx>=0?'var(--up)':'var(--dn)')+';font-family:var(--mono);">'+(cumEx>=0?'+':'')+cumEx.toLocaleString()+'</b> 張 <span style="color:var(--t3);font-size:8.5px;" title="對敲嫌疑分點近'+ds.length+'日買賣接近1:1、方向未明，其淨額參考性低。此剔除只作用於本彙總，逐日各行淨額未動。">（剔除 '+exArr.join('、')+'）</span>'):'')
+            +((cumEx!=null)?('｜剔除對敲後 <b style="color:'+(cumEx>=0?'var(--up)':'var(--dn)')+';font-family:var(--mono);">'+(cumEx>=0?'+':'')+cumEx.toLocaleString()+'</b> 張 <span style="color:var(--t3);font-size:8.5px;" title="對敲嫌疑分點近'+washDs.length+'個交易日買賣接近1:1（判定條件與站內對敲警示一致）、方向未明，其淨額參考性低。此剔除只作用於本彙總，逐日各行淨額未動。">（剔除 '+exArr.join('、')+'）</span>'):'')
             +'</div>'
             +(_flip?('<div style="color:var(--amber);font-size:9px;margin-top:2px;">⚠ 牌手淨額主要由對敲嫌疑分點貢獻——「拉高出貨／淨賣」類判讀請以<b>剔除後</b>數值為準</div>'):'')
             +(per.length?('<div style="color:var(--t3);margin-top:2px;">'
@@ -13188,7 +13239,8 @@ async function chipRenderRadar(){
   const slot=document.getElementById('chip-radar-slot'); if(!slot) return;
   const CD=window._chipData||{}; const sid=CD.stockId;
   if(!sid){ slot.innerHTML='<div style="color:var(--t3);font-size:9px;">資料未就緒</div>'; return; }
-  slot.innerHTML='<div style="color:var(--t3);font-size:9px;font-family:var(--mono);">📐 計算中：抓 3 年價格（個股＋大盤）、1 年借券、160 日法人…</div>';
+  slot.innerHTML='<div style="color:var(--t3);font-size:9px;font-family:var(--mono);line-height:1.7;">📐 計算中…<br>· 籌碼結構／牌手在場：已就緒<br>· 動能／借券／法人：抓取 3 年價格、1 年借券、160 日法人中（約需 10-20 秒）</div>';
+  await new Promise(function(r){ setTimeout(r, 30); });  // v21.4 讓出主執行緒，先把載入訊息畫出來再跑重計算
   const pr=function(arr,cur){ const v=arr.filter(function(x){return x!=null&&isFinite(x);}); if(v.length<26||cur==null||!isFinite(cur)) return null; let c=0; v.forEach(function(x){ if(x<=cur)c++; }); return Math.round(c/v.length*100); };
   const wkKey=function(ds){ const d=new Date(ds); const off=(d.getDay()+6)%7; return new Date(d.getTime()-off*86400000).toISOString().slice(0,10); };
   const axes=[null,null,null,null,null]; // [結構, 借券, 動能, 在場, 法人]
@@ -13209,16 +13261,23 @@ async function chipRenderRadar(){
       dts.forEach(function(dt){ cum+=b.daily[dt]; if(cum>peak)peak=cum; });
       if(peak>0 && Math.max(0,cum)/peak>=0.7) _in++; });
     axes[3]=_all.length?{name:'牌手在場', kind:'rate', val:Math.round(_in/_all.length*100), win:'分點窗~150日', ev:'⚪',
-      note:_in+'/'+_all.length+' 家在場（峰值留存≥70%）', warn:'retention 跨期回測反轉已降級——描述現況，不預測漲跌'}
+      note:_in+'/'+_all.length+' 家在場（全體牌手·峰值留存≥70%）', warn:'分母為全體牌手（②三群全部分點）；④信心度只計老手子集，兩處分母不同屬定義差異。retention 跨期回測反轉已降級——描述現況，不預測漲跌'}
       :{name:'牌手在場',kind:'rate',val:null,win:'—',ev:'⚪',note:'無買超群資料'};
   }catch(e){ axes[3]={name:'牌手在場',kind:'rate',val:null,win:'—',ev:'⚪',note:'—'}; }
 
   // ── 需長資料的三軸：並行 4 call（<9 上限）──
   try{
-    const idxId=(window._chipIdxCache&&window._chipIdxCache.label==='櫃買指數')?'TPEX':'TAIEX';
+    // v21.4 指數代號依序 fallback（沿用站內既有做法）：FinMind 上櫃指數為 TPEx（小寫x），TPEX 回傳 0 筆
+    const idxCands=(window._chipIdxCache&&window._chipIdxCache.label==='櫃買指數')?['TPEx','TPEX','TAIEX']:['TAIEX'];
+    const fetchIdx=async function(){
+      for(let i=0;i<idxCands.length;i++){
+        try{ const d=await chipFetchProxy('TaiwanStockPrice', idxCands[i], 780); if(Array.isArray(d)&&d.length>=100) return d; }catch(e){}
+      }
+      return [];
+    };
     const [rPx,rIdx,rSbl,rIns]=await Promise.allSettled([
       chipFetchProxy('TaiwanStockPrice', sid, 780),
-      chipFetchProxy('TaiwanStockPrice', idxId, 780),
+      fetchIdx(),
       chipFetchProxy('TaiwanDailyShortSaleBalances', sid, 260),
       chipFetchProxy('TaiwanStockInstitutionalInvestorsBuySell', sid, 160)
     ]);
@@ -13341,6 +13400,113 @@ async function chipRenderRadar(){
     +'<div style="flex:0 1 260px;min-width:220px;">'+sv+'</div>'
     +'<div style="flex:1 1 300px;min-width:260px;">'+tb+'</div>'
     +'</div></div>';
+}
+
+
+// ══ v21.5 借券賣餘額 × 股價 雙軸互動圖 ══
+// 目的：讓「空方轉折點」那句判讀可視、可驗證（圖在上、結論在下，同源同口徑）。
+// 口徑：畫「借券賣出餘額」（SBLShortSalesCurrentDayBalance＝真正的空方部位），
+//       非「借券總餘額」（含借了未賣的部位，口徑不同會與 E 區判讀打架）。
+// 註：2026-08 全市場事件研究（AI 80檔＋非AI 66檔）顯示創新高/新低皆跨族群不一致，
+//     故本圖僅供事實觀察與轉折定位，不作方向判定依據。
+function chipRenderSblChart(){
+  try{
+    const host = document.getElementById('chip-e-sbl-chart');
+    if(!host) return;
+    // 配對股價（此時 _chipData.priceData 必定已就緒）
+    const raw = window._sblRaw;
+    const pd = (window._chipData||{}).priceData||[];
+    if(!raw || !raw.length || !pd.length){ host.innerHTML=''; return; }
+    const pxMap={}; pd.forEach(function(p){ const c=parseFloat(p.close||0); if(c>0) pxMap[p.date]=c; });
+    const S = raw.map(function(x){ const px=pxMap[x.d]; return (px>0)?{d:x.d,px:px,bal:x.bal,sell:x.sell,ret:x.ret}:null; })
+                 .filter(function(x){ return x && x.bal>=0; });
+    if(S.length < 10){ host.innerHTML=''; return; }
+    const W=700, H=232, L=44, R=48, T=16, B=24, iw=W-L-R, ih=H-T-B;
+    let bMin=Infinity,bMax=-Infinity,pMin=Infinity,pMax=-Infinity;
+    S.forEach(function(d){
+      if(d.bal<bMin)bMin=d.bal; if(d.bal>bMax)bMax=d.bal;
+      if(d.px<pMin)pMin=d.px;   if(d.px>pMax)pMax=d.px;
+    });
+    const bp=(bMax-bMin)*0.12||1, pp=(pMax-pMin)*0.12||1;
+    bMin-=bp; bMax+=bp; pMin-=pp; pMax+=pp;
+    const X=function(i){ return L+(S.length<2?0:i/(S.length-1)*iw); };
+    const YB=function(v){ return T+(bMax-v)/(bMax-bMin)*ih; };
+    const YP=function(v){ return T+(pMax-v)/(pMax-pMin)*ih; };
+    const CB='var(--gold)', CP='#8b93a3';
+    let sv='<svg id="chip-sbl-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" style="width:100%;height:190px;display:block;touch-action:pan-y;">';
+    for(let k=0;k<=3;k++){
+      const gy=(T+ih*k/3).toFixed(1);
+      sv+='<line x1="'+L+'" y1="'+gy+'" x2="'+(W-R)+'" y2="'+gy+'" stroke="rgba(255,255,255,.05)" stroke-width="1"/>';
+    }
+    // 月份刻度
+    for(let i=1;i<S.length;i++){
+      if(S[i].d.slice(5,7)!==S[i-1].d.slice(5,7)){
+        const tx=X(i).toFixed(1);
+        sv+='<line x1="'+tx+'" y1="'+T+'" x2="'+tx+'" y2="'+(T+ih)+'" stroke="rgba(255,255,255,.045)" stroke-width="1"/>'
+          +'<text x="'+tx+'" y="'+(H-8)+'" text-anchor="middle" font-size="9" fill="var(--t3)" font-family="var(--mono)">'+S[i].d.slice(5,7)+'</text>';
+      }
+    }
+    // 轉折低點標記（與 E 區「空方轉折點」同源）
+    let loI=0; S.forEach(function(d,i){ if(d.bal<S[loI].bal) loI=i; });
+    sv+='<line x1="'+X(loI).toFixed(1)+'" y1="'+T+'" x2="'+X(loI).toFixed(1)+'" y2="'+(T+ih)+'" stroke="var(--up)" stroke-width="1" stroke-dasharray="3,3" opacity=".5"/>'
+      +'<circle cx="'+X(loI).toFixed(1)+'" cy="'+YB(S[loI].bal).toFixed(1)+'" r="3" fill="var(--up)"/>'
+      +'<text x="'+X(loI).toFixed(1)+'" y="'+(YB(S[loI].bal)+14).toFixed(1)+'" text-anchor="middle" font-size="8.5" fill="var(--up)" font-family="var(--mono)">低 '+S[loI].bal.toLocaleString()+'</text>';
+    // 雙折線
+    sv+='<polyline points="'+S.map(function(d,i){return X(i).toFixed(1)+','+YP(d.px).toFixed(1);}).join(' ')+'" fill="none" stroke="'+CP+'" stroke-width="1.3" opacity=".85"/>'
+      +'<polyline points="'+S.map(function(d,i){return X(i).toFixed(1)+','+YB(d.bal).toFixed(1);}).join(' ')+'" fill="none" stroke="'+CB+'" stroke-width="1.8"/>';
+    // 左右軸標籤（僅頭尾，避免壓線）
+    sv+='<text x="'+(L-5)+'" y="'+(T+9)+'" text-anchor="end" font-size="9" fill="'+CB+'" font-family="var(--mono)">'+Math.round(bMax).toLocaleString()+'</text>'
+      +'<text x="'+(L-5)+'" y="'+(T+ih)+'" text-anchor="end" font-size="9" fill="'+CB+'" font-family="var(--mono)">'+Math.round(bMin).toLocaleString()+'</text>'
+      +'<text x="'+(W-R+5)+'" y="'+(T+9)+'" font-size="9" fill="'+CP+'" font-family="var(--mono)">'+pMax.toFixed(0)+'</text>'
+      +'<text x="'+(W-R+5)+'" y="'+(T+ih)+'" font-size="9" fill="'+CP+'" font-family="var(--mono)">'+pMin.toFixed(0)+'</text>';
+    // 互動層：指示線 + 兩點
+    sv+='<line id="chip-sbl-cursor" x1="0" y1="'+T+'" x2="0" y2="'+(T+ih)+'" stroke="rgba(255,255,255,.45)" stroke-width="1" style="display:none;"/>'
+      +'<circle id="chip-sbl-dotb" r="3.5" fill="'+CB+'" style="display:none;"/>'
+      +'<circle id="chip-sbl-dotp" r="3.5" fill="'+CP+'" style="display:none;"/>'
+      +'<rect id="chip-sbl-hit" x="'+L+'" y="'+T+'" width="'+iw+'" height="'+ih+'" fill="transparent" style="cursor:crosshair;"/>';
+    sv+='</svg>';
+
+    host.innerHTML =
+      '<div style="display:flex;gap:12px;align-items:center;font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:3px;flex-wrap:wrap;">'
+      +'<span><span style="display:inline-block;width:14px;height:2px;background:var(--gold);vertical-align:middle;margin-right:4px;"></span>借券賣餘額（張·左軸）</span>'
+      +'<span><span style="display:inline-block;width:14px;height:2px;background:'+CP+';vertical-align:middle;margin-right:4px;"></span>股價（元·右軸）</span>'
+      +'<span style="color:var(--up);">┆ 期間低點</span>'
+      +'<span style="margin-left:auto;">'+S.length+'日</span>'
+      +'</div>'
+      +'<div style="position:relative;background:var(--bg3);border-radius:8px;padding:6px 4px 2px;">'
+      + sv
+      +'<div id="chip-sbl-tip" style="position:absolute;display:none;pointer-events:none;background:rgba(10,12,18,.96);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:10px;font-family:var(--mono);line-height:1.6;white-space:nowrap;z-index:5;"></div>'
+      +'</div>';
+
+    // ── 互動：滑鼠 + 觸控（手機為主要使用情境）──
+    const svg=document.getElementById('chip-sbl-svg'), hit=document.getElementById('chip-sbl-hit');
+    const cur=document.getElementById('chip-sbl-cursor'), db=document.getElementById('chip-sbl-dotb'), dp=document.getElementById('chip-sbl-dotp'), tip=document.getElementById('chip-sbl-tip');
+    if(!svg||!hit) return;
+    const show=function(clientX){
+      const rect=svg.getBoundingClientRect();
+      const vx=(clientX-rect.left)/rect.width*W;
+      let i=Math.round((vx-L)/iw*(S.length-1));
+      i=Math.max(0,Math.min(S.length-1,i));
+      const d=S[i], x=X(i);
+      cur.setAttribute('x1',x); cur.setAttribute('x2',x); cur.style.display='';
+      db.setAttribute('cx',x); db.setAttribute('cy',YB(d.bal)); db.style.display='';
+      dp.setAttribute('cx',x); dp.setAttribute('cy',YP(d.px)); dp.style.display='';
+      const dd=(d.sell!=null||d.ret!=null)?('<div style="color:var(--t3);font-size:9px;">當日賣出 '+(d.sell==null?'—':d.sell)+' ／ 還券 '+(d.ret==null?'—':d.ret)+'</div>'):'';
+      tip.innerHTML='<div style="color:var(--t2);">'+d.d+'</div>'
+        +'<div style="color:var(--gold);font-weight:700;">借券賣餘額 '+d.bal.toLocaleString()+' 張</div>'
+        +'<div style="color:'+CP+';">股價 '+d.px.toFixed(2)+'</div>'+dd;
+      tip.style.display='block';
+      const px=x/W*rect.width;
+      tip.style.left=Math.max(2,Math.min(rect.width-tip.offsetWidth-2,px+10))+'px';
+      tip.style.top='6px';
+    };
+    const hide=function(){ cur.style.display='none'; db.style.display='none'; dp.style.display='none'; tip.style.display='none'; };
+    hit.addEventListener('mousemove',function(e){ show(e.clientX); });
+    hit.addEventListener('mouseleave',hide);
+    hit.addEventListener('touchstart',function(e){ if(e.touches[0]) show(e.touches[0].clientX); },{passive:true});
+    hit.addEventListener('touchmove',function(e){ if(e.touches[0]) show(e.touches[0].clientX); },{passive:true});
+    hit.addEventListener('touchend',hide,{passive:true});
+  }catch(e){ console.warn('[sblChart]', e); }
 }
 
 // ══ 📁 全面摺疊模式（每區塊一行白話總結，點開看全文；後處理、不動各渲染函數）══
@@ -18894,6 +19060,17 @@ async function chipModE(stockId, days, floatShares){
   // ── 借券賣出餘額 SBL（外資/法人放空主力，存量）──────────────
   // TaiwanDailyShortSaleBalances: SBLShortSalesCurrentDayBalance = 借券賣出當日餘額
   const sblSorted = [...sblBal].sort((a,b) => a.date.localeCompare(b.date));
+  // ── v21.5 借券賣餘額×股價序列（供 E 區雙軸互動圖）──
+  // 口徑：SBLShortSalesCurrentDayBalance＝借券「賣出」餘額，與 E 區判讀同源。
+  // 只存借券側原始序列；股價在圖表渲染時才配對（modE 作用域內無 priceData，且可避開時序問題）
+  try{
+    window._sblRaw = sblSorted.map(function(d){
+      return { d:d.date,
+        bal:Math.round(parseInt(d.SBLShortSalesCurrentDayBalance||0)/1000),
+        sell:Math.round(parseInt(d.SBLShortSalesShortSales||0)/1000),
+        ret:Math.round(parseInt(d.SBLShortSalesReturns||0)/1000) };
+    });
+  }catch(_e){ window._sblRaw=null; }
   const lastSBL   = sblSorted[sblSorted.length - 1] || {};
   const prevSBL   = sblSorted[sblSorted.length - 2] || lastSBL;
   // 借券賣出餘額（股）→ 轉張數（÷1000）
@@ -19020,6 +19197,17 @@ async function chipModE(stockId, days, floatShares){
     // ── 空方轉折點顯示（低點日期→至今累積；事實陳述，季節期也顯示）──
     try{
       const T = window._lendTurn;
+      // ── v21.5 借券賣餘額×股價雙軸圖：置於轉折點文字「上方」，圖在上、結論在下 ──
+      try{
+        let chartEl = document.getElementById('chip-e-sbl-chart');
+        if(!chartEl && streakNoteEl.parentElement){
+          chartEl = document.createElement('div');
+          chartEl.id = 'chip-e-sbl-chart';
+          chartEl.style.cssText = 'margin-top:8px;';
+          streakNoteEl.parentElement.insertBefore(chartEl, streakNoteEl.nextSibling);
+        }
+        if(chartEl && typeof chipRenderSblChart==='function') chipRenderSblChart();
+      }catch(_ce){}
       let turnEl = document.getElementById('chip-e-turn-note');
       if(!turnEl && streakNoteEl.parentElement){
         turnEl = document.createElement('div');
@@ -21687,7 +21875,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── 版本戳（交付紀律：每次產出新檔即更新此行）──
 // ── 版本戳（交付紀律：每次產出新檔，版本號 +0.1、日期改為當天產出日，兩者一起改）──
-const APP_BUILD = 'v21.3（2026-08-06）';
+const APP_BUILD = 'v21.6（2026-08-12）';
 (function(){
   function stamp(){ document.querySelectorAll('.app-build').forEach(function(el){ el.textContent = APP_BUILD; }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',stamp); else stamp();
