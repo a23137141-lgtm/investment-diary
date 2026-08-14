@@ -11581,7 +11581,7 @@ async function chipRenderDealers(){
             // 大戶動向（客觀呈現,不預測方向）——用階段買超群或近期分點淨向
             let dealerDir = '';
             try{
-              const roles = window._chipStageRoles;
+              const roles = _chipGuardRoles();  // v21.8 驗章
               if(roles && roles.oldG){
                 let recentNet = 0;
                 [].concat(roles.oldG||[], roles.newG||[]).forEach(function(b){
@@ -11782,6 +11782,49 @@ async function chipRenderDealers(){
     if(r>=0.3) return {t:'減碼中', c:'var(--amber)', bg:'rgba(212,170,90,.12)', r};
     return {t:'已離桌', c:'var(--dn)', bg:'rgba(0,232,154,.10)', r};
   }
+  // ══ v21.9 科斯托蘭尼分類（敘事層 ⚪）══
+  // 2×2：留存（狀態）× 前一日漲跌的買賣傾向（行為）。用「前一日」切斷大單自我價格影響（同日版經實測會誤判：
+  // 美林同日買跌35%→前日64%，解讀反轉）。門檻先定：留存≥70/≤30（沿mState線）、買昨跌≥55=逆勢、
+  // 賣昨跌≥60=殺跌。峰值<門檻或對敲分點不標。retention 跨期回測已降級 → 純敘事，不進判讀矩陣。
+  const _kPrevChg = (function(){
+    const m={};
+    try{
+      const pd=[...((window._chipData||{}).priceData||[])].filter(function(p){return +p.close>0;}).sort(function(a,b){return a.date.localeCompare(b.date);});
+      for(let i=2;i<pd.length;i++) m[pd[i].date]=(+pd[i-1].close/+pd[i-2].close-1)*100;
+    }catch(_e){}
+    return m;
+  })();
+  function kostoType(b){
+    try{
+      if(!b || !b.daily) return null;
+      const st = mState(b);
+      let bD=0,bT=0,sD=0,sT=0;
+      Object.keys(b.daily).forEach(function(d){
+        const v=b.daily[d]||0, c=_kPrevChg[d];
+        if(c==null) return;
+        if(v>0){ bT+=v; if(c<0) bD+=v; }
+        if(v<0){ sT+=-v; if(c<0) sD+=-v; }
+      });
+      const buyDn = bT>0 ? bD/bT*100 : null;
+      const sellDn = sT>0 ? sD/sT*100 : null;
+      const contra = (buyDn!=null && buyDn>=55) || (buyDn==null && sellDn!=null && sellDn<=40);
+      const chase  = (buyDn!=null && buyDn<=40 && (sellDn==null || sellDn>=50)) || (buyDn==null && sellDn!=null && sellDn>=60);
+      const tip='科斯托蘭尼分類（⚪敘事層·不預測漲跌）：留存=峰值留存率；逆勢=前一日下跌時的買進佔比（用前一日切斷大單自我影響）。retention 預測力跨期回測已降級，本標籤只描述「這家怎麼打牌」。';
+      if(st.r>=0.7 && contra) return {t:'★固執', c:'var(--gold)', tip:tip+' 固執=抱著且跌了隔天買——科斯托蘭尼四要素型。買昨跌 '+Math.round(buyDn)+'%。'};
+      if(st.r>=0.7 && chase)  return {t:'順勢抱著', c:'var(--t2)', tip:tip+' 抱著、但行為是追漲型（買昨跌 '+Math.round(buyDn)+'%）——留得住不等於逆勢性格。'};
+      if(st.r<=0.3 && chase && sellDn!=null && sellDn>=60) return {t:'猶豫', c:'var(--dn)', tip:tip+' 猶豫=出清且賣壓集中在跌勢隔天（賣昨跌 '+Math.round(sellDn)+'%）——看到跌就跑。'};
+      if(st.r<=0.3 && contra) return {t:'高賣低買', c:'var(--blue,#4a9eff)', tip:tip+' 出清了、但買在跌後賣在漲後——獲利了結的專業戶，不是猶豫。'};
+      return null;
+    }catch(_e){ return null; }
+  }
+  function kostoBadge(b, washSet){
+    const MINPK = 300;
+    if(washSet && washSet[b.name]) return '';
+    if(!(b.peakPos >= MINPK)) return '';
+    const k = kostoType(b);
+    if(!k) return '';
+    return '<span title="'+k.tip+'" style="cursor:help;background:rgba(255,255,255,.05);color:'+k.c+';border:1px solid '+k.c+';border-radius:4px;padding:0 5px;font-size:8.5px;font-weight:700;">'+k.t+'</span>';
+  }
   function groupCounts(g){
     let a=0,m=0,o=0; g.forEach(b=>{ const t=mState(b).t; if(t==='一張沒賣')a++; else if(t==='減碼中')m++; else o++; });
     const parts=[];
@@ -11816,14 +11859,32 @@ async function chipRenderDealers(){
       return '<div style="padding:4px 0 4px 8px;border-left:2px solid '+st.c+';border-bottom:1px dashed rgba(255,255,255,.04);margin:2px 0;">'
         +'<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:10px;">'
           +'<span style="color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+b.name+' <span style="color:'+ty.c+';font-size:9px;">'+ty.t+'</span></span>'
-          +'<span style="white-space:nowrap;display:flex;align-items:center;gap:6px;"><span style="background:'+st.bg+';color:'+st.c+';border-radius:4px;padding:1px 7px;font-size:9px;font-weight:700;">'+st.t+'</span><span style="font-family:var(--mono);color:var(--t3);font-size:9.5px;">均價 '+b.cost.toFixed(1)+focus+'</span></span>'
+          +'<span style="white-space:nowrap;display:flex;align-items:center;gap:6px;"><span style="background:'+st.bg+';color:'+st.c+';border-radius:4px;padding:1px 7px;font-size:9px;font-weight:700;">'+st.t+'</span>'+kostoBadge(b)+'<span style="font-family:var(--mono);color:var(--t3);font-size:9.5px;">均價 '+b.cost.toFixed(1)+focus+'</span></span>'
         +'</div>'
         +'<div style="font-size:9.5px;color:var(--t3);font-family:var(--mono);margin-top:1px;">'+desc+'</div>'
       +'</div>';
     }).join('');
   }
   const period = allDates.length;
-  let html = '<div style="font-size:11px;font-weight:800;color:var(--t1);margin-bottom:9px;display:flex;align-items:center;gap:7px;">🎯 牌局牌手 <span style="font-size:9px;color:var(--t3);font-family:var(--mono);font-weight:400;">低檔老手 vs 近期新手 · 成本分群 · '+period+'交易日</span></div>';
+  // v21.9 桌面彙總：科斯托蘭尼組成（敘事層）
+  let _kSummary = '';
+  try{
+    const _kAll = [].concat(oldG||[], newG||[], (typeof hiG!=='undefined'?hiG:[])||[]);
+    const _kSeen = {}, _kT = {};
+    _kAll.forEach(function(b){
+      if(!b || _kSeen[b.name]) return; _kSeen[b.name]=1;
+      if(!(b.peakPos>=300)) return;
+      const k = kostoType(b); if(!k) return;
+      _kT[k.t]=(_kT[k.t]||0)+1;
+    });
+    const _kg=_kT['★固執']||0, _ky=_kT['猶豫']||0, _ko=_kT['順勢抱著']||0, _kp=_kT['高賣低買']||0;
+    if(_kg+_ky+_ko+_kp>0){
+      _kSummary = '<div title="科斯托蘭尼：行情漲跌取決於股票在誰手上——籌碼從猶豫者流向固執者是底部特徵、反向是頭部特徵。⚪敘事層：描述這桌組成，不預測方向（retention 跨期回測已降級）。分類條件：留存≥70%＋前日跌時買≥55%＝固執；留存≤30%＋前日跌時賣≥60%＝猶豫。" style="cursor:help;font-size:9.5px;color:var(--t2);margin:6px 0 8px;padding:5px 8px;background:var(--bg3);border-radius:6px;line-height:1.6;">🃏 這桌組成（科斯托蘭尼·⚪敘事）：<b style="color:var(--gold);">★固執 '+_kg+'</b> vs <b style="color:var(--dn);">猶豫 '+_ky+'</b>'
+        +(_ko?('　·　順勢抱著 '+_ko):'')+(_kp?('　·　高賣低買 '+_kp):'')
+        +'<span style="color:var(--t3);font-size:8.5px;">　（峰值≥300張才列入；對敲嫌疑見③警示自行對照）</span></div>';
+    }
+  }catch(_e){}
+  let html = '<div style="font-size:11px;font-weight:800;color:var(--t1);margin-bottom:9px;display:flex;align-items:center;gap:7px;">🎯 牌局牌手 <span style="font-size:9px;color:var(--t3);font-family:var(--mono);font-weight:400;">低檔老手 vs 近期新手 · 成本分群 · '+period+'交易日</span></div>'+_kSummary;
   if(period < 60) html += '<div style="font-size:9.5px;color:var(--amber);margin-bottom:8px;">⚠️ 目前分析天期僅 '+period+' 交易日，低檔群鑑別度有限——建議選 90 日以上再看這層。</div>';
   if(inverted) html += '<div style="font-size:9.5px;color:var(--amber);margin-bottom:8px;">⚠️ <b>時序倒置（下跌型）</b>：本檔「高價群」才是早期建倉的老手（現套牢/高檔），「低價群」為近期逢低承接的後進者——老手離桌/鏡像/照妖鏡判定皆以<b>時間老手</b>為準。</div>';
 
@@ -12080,6 +12141,20 @@ async function chipRenderDealers(){
   await _dispBanner();
 }
 
+// ══ v21.8 跨股殘留防護章 ══
+// 背景：實測發現 ② 寫入 _chipStageRoles 可靜默失敗（try/catch 只 console.warn），
+// 下游會拿到上一檔股票的牌手資料且畫面看似正常。防護：寫入蓋 stockId 章、讀取驗章。
+function _chipGuardRoles(){
+  const R = window._chipStageRoles;
+  if(!R) return null;
+  const cur = String((window._chipData && window._chipData.stockId) || '');
+  if(R.stockId && cur && String(R.stockId) !== cur){
+    console.warn('[防護章] _chipStageRoles 股號不符：持有 '+R.stockId+' ≠ 當前 '+cur+'，拒用避免跨股汙染');
+    return null;
+  }
+  return R;
+}
+
 async function chipRenderFlows(){
   const el = document.getElementById('chip-flows');
   if(!el) return;
@@ -12203,28 +12278,34 @@ async function chipRenderFlows(){
     if(isFinite(b)) _forceB[d]=b;
     if(isFinite(a)) _forceA[d]=a;
   });
+  // v21.7 回傳 {x:倍數, p:百分位}。門檻改用百分位（相對排名，政權不變）：
+  // 固定 2x 在低波動股幾乎不觸發、高波動股又太常觸發；百分位讓每檔各自校準。
   const _forceRatio = function(map, dt){
     const i = allDates.indexOf(dt); if(i<21) return null;
     const win=[]; for(let k=Math.max(0,i-60); k<i; k++){ const v=map[allDates[k]]; if(v!=null&&v>0) win.push(v); }
-    if(win.length<20) return null;
+    if(win.length<20 || map[dt]==null) return null;
     win.sort(function(a,b){return a-b;});
     const med = win[Math.floor(win.length/2)];
-    return (med>0 && map[dt]!=null) ? map[dt]/med : null;
+    let below=0; win.forEach(function(v){ if(v<=map[dt]) below++; });
+    return { x:(med>0? map[dt]/med : null), p:Math.round(below/win.length*100) };
   };
   // 白話註記：每天最多一句、只在極端時出現（≥2x 出力／高換手沒方向／量比≥1.5 且 ≤0.3x 沒出力）
+  // 門檻（先定條件）：出力＝近60日前10%（P≥90）；沒出力＝後15%（P≤15）；
+  // 對倒＝參與度P≥90 且 方向P≤30。倍數仍顯示給人看（直觀），但觸發與否由百分位決定。
   const forceNoteOf = function(dt, net, vr){
     try{
-      const br = _forceRatio(_forceB, dt);
-      if(br==null) return '';
-      const tip = '牌手力度＝|牌手淨額|÷扣當沖量，再跟這檔自己近60日的平常值比。口徑：分點只有前15大買賣超、當沖為全市場統計，故只看「是平常幾倍」不看絕對%。';
-      if(br>=2){
-        return '<span title="'+tip+'" style="cursor:help;color:'+(net>0?'var(--up)':'var(--amber)')+';font-size:9.5px;">💪 牌手'+(net>0?'出力買':'出力賣')+'——力度是平常的 '+br.toFixed(1)+' 倍</span>';
+      const b = _forceRatio(_forceB, dt);
+      if(b==null) return '';
+      const tip = '牌手力度＝|牌手淨額|÷扣當沖量，再放回這檔自己近60日的分佈定位。P90＝近60日最用力的前10%。口徑：分點只有前15大買賣超、當沖為全市場統計，故看相對位置不看絕對%。';
+      const xs = (b.x!=null? '（'+b.x.toFixed(1)+'倍平常）' : '');
+      if(b.p>=90){
+        return '<span title="'+tip+'" style="cursor:help;color:'+(net>0?'var(--up)':'var(--amber)')+';font-size:9.5px;">💪 牌手'+(net>0?'出力買':'出力賣')+'——近60日最用力的前 '+(100-b.p)+'% '+xs+'</span>';
       }
-      const ar = _forceRatio(_forceA, dt);
-      if(ar!=null && ar>=2 && br<=0.5){
+      const a = _forceRatio(_forceA, dt);
+      if(a!=null && a.p>=90 && b.p<=30){
         return '<span title="'+tip+'　高換手＋低淨額＝大量進出但方向抵銷，常見於對倒或換手，與對敲偵測互相印證。" style="cursor:help;color:var(--t3);font-size:9.5px;">🔁 牌手大量進出但沒方向——對倒／換手味</span>';
       }
-      if(vr!=null && vr>=1.5 && br<=0.3){
+      if(vr!=null && vr>=1.5 && b.p<=15){
         return '<span title="'+tip+'" style="cursor:help;color:var(--t3);font-size:9.5px;">😴 量放大但牌手沒出力——這根主要是散戶互相成交出來的</span>';
       }
       return '';
@@ -12768,7 +12849,7 @@ async function chipRenderFlows(){
   // ══ 展開全部關鍵角色（起漲段老手前12＋見頂後新手前12）：藍框展開，樣式對齊董監/ETF明細 ══
   let _rolesDetailHtml = '';
   try{
-    const _DLr = window._chipStageRoles || {};
+    const _DLr = _chipGuardRoles() || {};  // v21.8 驗章
     const _mkRows = function(list, label){
       if(!list || !list.length) return '';
       let h = '<div style="font-size:9.5px;font-weight:700;color:var(--gold);margin:6px 0 3px;">'+label+'（前'+list.length+'）</div>';
@@ -12871,7 +12952,7 @@ async function chipRenderFlows(){
           }catch(_e){ cumEx=null; }
           const _flip = (cumEx!=null) && ((cum>actThr&&cumEx<-actThr)||(cum<-actThr&&cumEx>actThr)||(Math.abs(cum)>actThr&&Math.abs(cum-cumEx)>=Math.abs(cum)*0.5));
           // v21.3 供籌碼五角定位「牌手背書」標記使用（剔對敲後優先）
-          try{ window._chipFlow5={cum:Math.round(cum), cumEx:cumEx, ds:ds.slice()}; }catch(_e){}
+          try{ window._chipFlow5={stockId:String((window._chipData&&window._chipData.stockId)||''), cum:Math.round(cum), cumEx:cumEx, ds:ds.slice()}; }catch(_e){}  // v21.8 蓋章
           const _c=cum>=0?'var(--up)':'var(--dn)', _pc=chgPct>=0?'var(--up)':'var(--dn)';
           return '<div style="margin-top:10px;padding:9px 11px;background:rgba(255,255,255,.035);border-radius:8px;font-size:10px;line-height:1.8;">'
             +'<div style="color:var(--t2);font-weight:700;margin-bottom:3px;">📊 這 '+ds.length+' 天合起來看（'+d0.slice(5)+' ~ '+dN.slice(5)+'）</div>'
@@ -13142,7 +13223,7 @@ function chipRenderTopVerdict(){
   const V = window._chipVerdictBars || {};
   const clean = s => (s||'').replace(/^[^：:]+[：:]\s*/,'').trim();
   const depth = window._chipDepth || {};
-  const roles = window._chipStageRoles || {};
+  const roles = _chipGuardRoles() || {};  // v21.8 驗章
 
   // ① 桌型（市值級距）
   let deskLine = '';
@@ -13255,7 +13336,8 @@ async function chipRenderRadar(){
 
   // ── 軸4 牌手在場率（②同構：峰值留存 ≥70% 在場，與④信心度同一判定）──
   try{
-    const _r=window._chipStageRoles||{}; const _all=[].concat(_r.oldG||[], _r.newG||[]);
+    // v21.7 補回 sellers：③「牌手」＝②三群全部分點（含頭號賣家群），先前漏算導致分母與 ③ 不一致
+    const _r=_chipGuardRoles()||{}; const _all=[].concat(_r.oldG||[], _r.newG||[], _r.sellers||[]);  // v21.8 驗章
     let _in=0;
     _all.forEach(function(b){ const dts=Object.keys(b.daily||{}).sort(); let cum=0,peak=0;
       dts.forEach(function(dt){ cum+=b.daily[dt]; if(cum>peak)peak=cum; });
@@ -13304,7 +13386,9 @@ async function chipRenderRadar(){
       const rsCur=rsSer.length?rsSer[rsSer.length-1]:null;
       const p3=pr(rsSer,rsCur);
       let endorse=null;
-      try{ const f5=window._chipFlow5; const adj=(f5&&f5.cumEx!=null)?f5.cumEx:(f5?f5.cum:null);
+      try{ let f5=window._chipFlow5;
+        if(f5&&f5.stockId&&String(f5.stockId)!==String(sid)){ console.warn('[防護章] _chipFlow5 股號不符，背書標記停用'); f5=null; }
+        const adj=(f5&&f5.cumEx!=null)?f5.cumEx:(f5?f5.cum:null);
         if(adj!=null&&rsCur!=null) endorse=((adj>0&&rsCur>0)||(adj<0&&rsCur<0)); }catch(e){}
       axes[2]={name:'動能', kind:'pct', val:p3, win:'近3年·週RS', ev:'✅',
         note:'本週RS '+(rsCur==null?'—':(rsCur>=0?'+':'')+rsCur.toFixed(1))+(endorse===true?'　●牌手背書（剔對敲後同向）':endorse===false?'　○無背書（牌手與價背離）':''),
@@ -13414,8 +13498,13 @@ function chipRenderSblChart(){
     const host = document.getElementById('chip-e-sbl-chart');
     if(!host) return;
     // 配對股價（此時 _chipData.priceData 必定已就緒）
-    const raw = window._sblRaw;
-    const pd = (window._chipData||{}).priceData||[];
+    const _sr = window._sblRaw;
+    const _cd = window._chipData||{};
+    if(_sr && _sr.stockId && _cd.stockId && String(_sr.stockId)!==String(_cd.stockId)){
+      console.warn('[防護章] _sblRaw 股號不符，借券圖不渲染'); host.innerHTML=''; return;
+    }
+    const raw = _sr && _sr.rows;
+    const pd = _cd.priceData||[];
     if(!raw || !raw.length || !pd.length){ host.innerHTML=''; return; }
     const pxMap={}; pd.forEach(function(p){ const c=parseFloat(p.close||0); if(c>0) pxMap[p.date]=c; });
     const S = raw.map(function(x){ const px=pxMap[x.d]; return (px>0)?{d:x.d,px:px,bal:x.bal,sell:x.sell,ret:x.ret}:null; })
@@ -16044,7 +16133,7 @@ function _chipRookieGuide(){
   try{
     const depth = window._chipDepth || {};
     const seats = window._chipSeatsData || [];
-    const roles = window._chipStageRoles || {};
+    const roles = _chipGuardRoles() || {};  // v21.8 驗章
     const prices = (window._chipPriceData || []).filter(function(p){return +p.close>0;}).map(function(p){return +p.close;});
     if(!depth.sizeCls || !seats.length || prices.length<30){ el.style.display='none'; return; }
 
@@ -16613,7 +16702,7 @@ function chipRenderStageAnalysis(){
       });
       // 暴露為 _chipStageRoles（新）＋兼容 _chipDealers（流向層現讀這個）
       window._chipStageGroups = groups;   // v20.8：供「最忠實客戶」偵測
-    window._chipStageRoles = { oldG:oldG, newG:newG, sellers:sellers, earlyLabel:(early?early.seg.label:''), lateLabel:(late&&late!==early?late.seg.label:'') };
+    window._chipStageRoles = { stockId:String((window._chipData&&window._chipData.stockId)||''), oldG:oldG, newG:newG, sellers:sellers, earlyLabel:(early?early.seg.label:''), lateLabel:(late&&late!==early?late.seg.label:'') };  // v21.8 蓋章
       window._chipDealers = Object.assign({}, window._chipDealers||{}, { oldG:oldG, newG:newG, lowG:oldG, hiG:newG, sellers:sellers, _fromStage:true });
     }
   }catch(_e){ console.warn('[階段角色暴露] 失敗:', _e.message); }
@@ -19064,12 +19153,12 @@ async function chipModE(stockId, days, floatShares){
   // 口徑：SBLShortSalesCurrentDayBalance＝借券「賣出」餘額，與 E 區判讀同源。
   // 只存借券側原始序列；股價在圖表渲染時才配對（modE 作用域內無 priceData，且可避開時序問題）
   try{
-    window._sblRaw = sblSorted.map(function(d){
+    window._sblRaw = { stockId:String(stockId||''), rows: sblSorted.map(function(d){
       return { d:d.date,
         bal:Math.round(parseInt(d.SBLShortSalesCurrentDayBalance||0)/1000),
         sell:Math.round(parseInt(d.SBLShortSalesShortSales||0)/1000),
         ret:Math.round(parseInt(d.SBLShortSalesReturns||0)/1000) };
-    });
+    }) };
   }catch(_e){ window._sblRaw=null; }
   const lastSBL   = sblSorted[sblSorted.length - 1] || {};
   const prevSBL   = sblSorted[sblSorted.length - 2] || lastSBL;
@@ -19927,7 +20016,8 @@ async function chipRunAll(){
     // 跨股殘留的全域快取
     ['_chipDealers','_chipStageRoles','_chipFlowJudgments','_chipSeatsData','_chipSblDaily',
      '_dayTradeFlags','_chipDividend','_chipForeignHold','_chipThresholdInfo','_peerMeta',
-     '_dtSeries','_chipDTCache','_stageOverlap','_hoardThLots','_bfDev','_chipDepth','_chipData'
+     '_dtSeries','_chipDTCache','_stageOverlap','_hoardThLots','_bfDev','_chipDepth','_chipData',
+     '_chipFlow5','_sblRaw','_chipStageGroups','_lendTurn','_margTurn','_chipInstByDate'  // v21.8 補：v20.8~21.5 新增的跨股殘留源
     ].forEach(function(k){ try{ delete window[k]; }catch(_e){ window[k]=undefined; } });
   }catch(_e){}
 
@@ -20672,7 +20762,7 @@ function chipRenderWeeklyFlow(d){
   else { _cfChecks.push({s:0, t:'➖ 資金流向與結構無明顯一致或背離'}); }
   // ② 牌手（階段買超群）在場 vs 離場
   try{
-    const _roles=window._chipStageRoles;
+    const _roles=_chipGuardRoles();  // v21.8 驗章
     if(_roles && (_roles.oldG||_roles.newG)){
       const _all=[].concat(_roles.oldG||[], _roles.newG||[]);
       let _inField=0, _left=0;
@@ -21875,7 +21965,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── 版本戳（交付紀律：每次產出新檔即更新此行）──
 // ── 版本戳（交付紀律：每次產出新檔，版本號 +0.1、日期改為當天產出日，兩者一起改）──
-const APP_BUILD = 'v21.6（2026-08-13）';
+const APP_BUILD = 'v21.9（2026-08-14）';
 (function(){
   function stamp(){ document.querySelectorAll('.app-build').forEach(function(el){ el.textContent = APP_BUILD; }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',stamp); else stamp();
