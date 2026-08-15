@@ -13043,20 +13043,21 @@ function chipRenderPlayers(){
       }
       cont6 = ok;
     }
-    return {net, w1, cont, w6, cont6};
+    // v22.4 補水準值：net/w1/w6 皆為佔比相減＝百分點(pp)，非相對%；同時回傳各期起點供「X%→Y%」顯示
+    return {net, w1, cont, w6, cont6, cur:s0, ago1:s1, ago3:s3, ago6:(dd.length>=7?dd[6][key]:null)};
   }
   const bT=trend3('bigP'), rT=trend3('retailP'), mT=trend3('mediumP'), proT=trend3('proP');
   function tw(t){
-    const f=v=>(v>=0?'+':'')+v.toFixed(1)+'%';
+    const f=v=>(v>=0?'+':'')+v.toFixed(2)+'pp';   // v22.4 單位正名：佔比相減是百分點不是%
     const _mk=(window._chipDepth&&window._chipDepth.mktCapE)||0;
     const _amt=(Math.abs(t.w1)>=0.3&&_mk>0)?(function(){ const a=_mk*Math.abs(t.w1)/100; return '（≈'+(a>=1?a.toFixed(1)+'億':Math.round(a*10000).toLocaleString()+'萬')+'）'; })():'';
-    return '近1週 '+f(t.w1)+_amt+'｜3週 '+f(t.net)+((t.cont&&Math.abs(t.net)>0.3)?'（連3週'+(t.net>0?'↑':'↓')+'）':'')+(t.w6!=null?('｜6週 '+f(t.w6)+((t.cont6&&Math.abs(t.w6)>0.5)?'（連6週'+(t.w6>0?'↑':'↓')+'）':'')):'');
+    return (t.cur!=null?('現 '+t.cur.toFixed(1)+'%｜'):'')+'近1週 '+f(t.w1)+_amt+'｜3週 '+f(t.net)+((t.cont&&Math.abs(t.net)>0.3)?'（連3週'+(t.net>0?'↑':'↓')+'）':'')+(t.w6!=null?('｜6週 '+f(t.w6)+((t.cont6&&Math.abs(t.w6)>0.5)?'（連6週'+(t.w6>0?'↑':'↓')+'）':'')):'');
   }
   // ── 席次變化：依「期間」分組排版（近1週／3週／6週各一區塊，留白清楚）──
   function seatVal(t, per){
     const v = (per==='w1') ? t.w1 : (per==='net') ? t.net : t.w6;
     if(v==null || isNaN(v)) return null;
-    const f = (v>=0?'+':'') + v.toFixed(1) + '%';
+    const f = (v>=0?'+':'') + v.toFixed(2) + 'pp';   // v22.4 單位正名：佔比相減＝百分點
     const _mk = (window._chipDepth && window._chipDepth.mktCapE) || 0;
     // v17.8：表格版空間有限，金額改為極簡格式（僅 ≥1億 才顯示，避免撐爆欄寬）
     const amt = (Math.abs(v)>=0.3 && _mk>0) ? (function(){
@@ -13139,7 +13140,12 @@ function chipRenderPlayers(){
   window._chipSeatStruct = { text: structT, color: structC, b: bT.net, m: mT.net, r: rT.net };
   // 千張大戶「難得出手」：本大平常不動，連續變化超過1%＝罕見動作，必高亮
   const bigMove = Math.abs(bT.net)>=1;
-  const bigMoveLine = bigMove ? '<div style="color:'+bC+';font-weight:700;margin-bottom:4px;">⚡ 千張大戶難得出手：3週 '+(bT.net>=0?'+':'')+bT.net.toFixed(1)+'%'+(bT.w6!=null?('、6週 '+(bT.w6>=0?'+':'')+bT.w6.toFixed(1)+'%'):'')+'（大戶平常不動，一動必關注）</div>' : '';
+  // v22.4 改「X% → Y%（±Z pp）」水準值格式（與①三大選手群、哨兵同口徑）
+  const _bmSeg=function(ago,pp){
+    if(ago==null||bT.cur==null) return (pp>=0?'+':'')+pp.toFixed(2)+'pp';
+    return ago.toFixed(1)+'% → '+bT.cur.toFixed(1)+'%（'+(pp>=0?'+':'')+pp.toFixed(2)+'pp）';
+  };
+  const bigMoveLine = bigMove ? '<div style="color:'+bC+';font-weight:700;margin-bottom:4px;">⚡ 千張大戶難得出手：3週 '+_bmSeg(bT.ago3,bT.net)+(bT.w6!=null?('、6週 '+_bmSeg(bT.ago6,bT.w6)):'')+'（大戶平常不動，一動必關注）</div>' : '';
   // DDR → 中性席次消長描述（拔掉多空預測）
   let ddrLine='';
   try{
@@ -13300,8 +13306,7 @@ function chipRenderTopVerdict(){
     + '</div>'
     // v21.3 籌碼五角定位（首次展開才抓長資料，避免每次分析都耗 4 個 API call）
     + '<div style="margin-top:9px;">'
-    + '<div onclick="var d=document.getElementById(\'chip-radar-fold\');var a=document.getElementById(\'chip-radar-arrow\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';a.textContent=d.style.display===\'none\'?\'▸\':\'▾\';if(d.style.display!==\'none\'&&!d.dataset.ld){d.dataset.ld=1;try{chipRenderRadar();}catch(e){}}" style="cursor:pointer;display:inline-block;font-size:10px;color:var(--blue,#4a9eff);background:rgba(74,158,255,.1);border:1px solid rgba(74,158,255,.3);border-radius:6px;padding:3px 10px;white-space:nowrap;"><span id="chip-radar-arrow">▸</span> 🎯 籌碼五角定位（點擊展開·定位圖非評分）</div>'
-    + '<div id="chip-radar-fold" style="display:none;margin-top:7px;"><div id="chip-radar-slot"></div></div>'
+    + '<div id="chip-radar-slot"></div>'
     + '</div>'
     // 教學附錄（原「個股籌碼規則」「新手4步」併入本卡：點開展開在卡片正下方）
     + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;">'
@@ -13338,31 +13343,22 @@ async function chipRenderRadar(){
       const retNow=B.retail/B.total*100, retPre=P.retail/P.total*100;
       const dBig=bigNow-bigPre, dRet=retNow-retPre;
       const x=dBig-dRet;
+      // v22.3 三週明細（大戶≥1000張／中實戶50~1000張，內含準大戶400~1000／散戶<50張；三者相加=100%）
+      const _lv3=w.slice(-3).map(function(q){
+        const wh=q.whale/q.total*100, rt=q.retail/q.total*100, md=100-wh-rt, pr=(q.pro||0)/q.total*100;
+        return {d:q.date.slice(5), wh:wh, md:md, rt:rt, pr:pr};
+      });
+      const _lvTxt=_lv3.slice().reverse().map(function(q,i){
+        return (i===0?'最新('+q.d+')':i===1?'上週':'上上週')+' 大戶 '+q.wh.toFixed(1)+'／中實 '+q.md.toFixed(1)+'（準大戶 '+q.pr.toFixed(1)+'）／散戶 '+q.rt.toFixed(1)+'%';
+      }).join('<br>');
       // v22.1 ④稀釋防護：兩週 total 跳變≥1%（增資/CB轉換）時，佔比變動含被動稀釋，不能當主動買賣讀
       const _dil = P.total>0 && Math.abs(B.total-P.total)/P.total>=0.01;
       A[0]={name:'籌碼結構', v:_dil?null:toScale(x,3), ev:'⚪', dir:_dil?'稀釋':(x>0.3?'偏多':x<-0.3?'偏空':'中性'),
-        note:(_dil?'⚠ 總股數週跳變（增資/CB），pp 變動含稀釋成分，本週不判：':'')+'大戶+準大戶 '+(dBig>=0?'+':'')+dBig.toFixed(2)+'pp・散戶 '+(dRet>=0?'+':'')+dRet.toFixed(2)+'pp',
+        note:(_dil?'⚠ 總股數週跳變（增資/CB），pp 變動含稀釋成分，本週不判<br>':'')+'大戶+準大戶 '+(dBig>=0?'+':'')+dBig.toFixed(2)+'pp・散戶 '+(dRet>=0?'+':'')+dRet.toFixed(2)+'pp<br><span style="color:var(--t3);font-size:9px;">'+_lvTxt+'</span>',
         tip:'最佳狀況＝散戶減少且大戶(≥1000張)+準大戶(400~1000張)增加。軸值＝兩者 pp 變化之差，±3pp 對應滿格。集保週頻、通常延遲至上週五。'};
     }
   }catch(e){}
   if(!A[0]) A[0]={name:'籌碼結構',v:null,ev:'⚪',dir:'—',note:'集保資料不足',tip:''};
-
-  // ── 軸4 牌手本週（剔對敲後）÷ 20日均量 ──
-  try{
-    let f5=window._chipFlow5;
-    if(f5&&f5.stockId&&String(f5.stockId)!==String(sid)) f5=null;
-    const pd=[...(CD.priceData||[])].filter(function(p){return +p.close>0;}).sort(function(a,b){return a.date.localeCompare(b.date);});
-    const v20=pd.slice(-20).map(function(p){return parseFloat(p.Trading_Volume||0)/1000;}).filter(function(v){return v>0;});
-    const avg=v20.length?v20.reduce(function(a,b){return a+b;},0)/v20.length:0;
-    if(f5&&avg>0){
-      const net=(f5.cumEx!=null?f5.cumEx:f5.cum);
-      const x=net/avg;   // 本週牌手淨額相當於幾天均量
-      A[3]={name:'牌手本週', v:toScale(x,1.5), ev:'⚪', dir:x>0.15?'偏多':x<-0.15?'偏空':'中性',
-        note:'本週'+(net>=0?'買超 +':'賣超 ')+net.toLocaleString()+' 張＝'+x.toFixed(2)+'天均量'+(f5.cumEx!=null?'（已剔對敲）':''),
-        tip:'②三群牌手本週累積淨額÷20日均量，±1.5天均量對應滿格。已扣除對敲嫌疑分點（買賣≈1:1、方向未明）。'};
-    }
-  }catch(e){}
-  if(!A[3]) A[3]={name:'牌手本週',v:null,ev:'⚪',dir:'—',note:'牌手資料不足',tip:''};
 
   // ── 需外部資料的三軸：並行（含融資，共5個請求 <9上限）──
   try{
@@ -13373,14 +13369,16 @@ async function chipRenderRadar(){
       }
       return [];
     };
-    const [rPx,rIdx,rSbl,rMar]=await Promise.allSettled([
+    const [rPx,rIdx,rSbl,rMar,rDt]=await Promise.allSettled([
       chipFetchProxy('TaiwanStockPrice',sid,120),
       fetchIdx(),
       chipFetchProxy('TaiwanDailyShortSaleBalances',sid,60),
-      chipFetchProxy('TaiwanStockMarginPurchaseShortSale',sid,60)
+      chipFetchProxy('TaiwanStockMarginPurchaseShortSale',sid,60),
+      chipFetchProxy('TaiwanStockDayTrading',sid,40)
     ]);
     const pxL=rPx.status==='fulfilled'?rPx.value:[], idxL=rIdx.status==='fulfilled'?rIdx.value:[];
     const sblL=rSbl.status==='fulfilled'?rSbl.value:[], marL=rMar.status==='fulfilled'?rMar.value:[];
+    const dtL=rDt.status==='fulfilled'?rDt.value:[];
     const pxS=[...pxL].filter(function(p){return +p.close>0;}).sort(function(a,b){return a.date.localeCompare(b.date);});
     const dts=pxS.map(function(p){return p.date;});
     const vol={}; pxS.forEach(function(p){ vol[p.date]=parseFloat(p.Trading_Volume||0)/1000; });
@@ -13395,6 +13393,30 @@ async function chipRenderRadar(){
       return Math.max(0,dts.length-5);
     })();
     const wkDays=dts.length-wkStartIdx;
+    // 當沖率（與③同法：當沖量÷總量）
+    const dtR={}; dtL.forEach(function(r){ const v=parseFloat(r.Volume||0)/1000, t=vol[r.date]||0; if(v>0&&t>0) dtR[r.date]=Math.min(0.95,v/t); });
+
+    // ── 軸4 牌手本週淨額 ÷ 本週「扣當沖」成交量（使用者建議：同窗同口徑，不用20日均量）──
+    try{
+      let f5=window._chipFlow5;
+      if(f5&&f5.stockId&&String(f5.stockId)!==String(sid)) f5=null;
+      let wkVol=0, wkAdj=0, dtSum=0, dtN=0;
+      for(let i=wkStartIdx;i<dts.length;i++){
+        const d=dts[i], v=vol[d]||0; if(!(v>0)) continue;
+        const r=(dtR[d]!=null)?dtR[d]:0;
+        wkVol+=v; wkAdj+=v*(1-r); if(dtR[d]!=null){ dtSum+=r; dtN++; }
+      }
+      if(f5&&wkAdj>0){
+        const net=(f5.cumEx!=null?f5.cumEx:f5.cum);
+        const x=net/wkAdj;   // 牌手淨額佔本週真實換手的比例
+        const dtAvg=dtN?(dtSum/dtN*100):null;
+        A[3]={name:'牌手本週', v:toScale(x,0.25), ev:'⚪', dir:x>0.025?'偏多':x<-0.025?'偏空':'中性',
+          note:'本週'+(net>=0?'買超 +':'賣超 ')+net.toLocaleString()+' 張＝本週扣當沖量的 <b>'+(x*100).toFixed(1)+'%</b>'+(f5.cumEx!=null?'（已剔對敲）':'')
+            +'<br><span style="color:var(--t3);font-size:9px;">本週量 '+Math.round(wkVol).toLocaleString()+' 張'+(dtAvg!=null?('・當沖 '+dtAvg.toFixed(0)+'%'):'')+' → 扣當沖 '+Math.round(wkAdj).toLocaleString()+' 張（'+wkDays+'日）</span>',
+          tip:'②三群牌手本週累積淨額 ÷ 本週扣當沖成交量（＝Σ 日量×(1−當沖率)）。分子分母同窗同口徑，回答「本週真實換手裡，牌手佔了多少方向性部位」。±25% 對應滿格。已剔除對敲嫌疑分點。口徑限制：分點僅前15大買賣超（分子低估）、當沖率為全市場統計非分點層級。'};
+      }
+    }catch(e){}
+    if(!A[3]) A[3]={name:'牌手本週',v:null,ev:'⚪',dir:'—',note:'牌手或當沖資料不足',tip:''};
 
     // ── 軸3 本週動能 vs 大盤（✅ RS 已驗證）──
     try{
@@ -13425,8 +13447,31 @@ async function chipRenderRadar(){
         const full=0.8*Math.max(0.4, Math.min(1, wkDays/5));
         const x=-(chgWk/avg20);
         const spike=(Math.abs(chg1)/avg20>=0.25)?('　⚡ 最新一日'+(chg1>0?'大增 +':'大減 ')+chg1.toLocaleString()+' 張'):'';
+        // v22.3 近四週逐週變化：以價格日曆切週（週一為界），每週取該週最後一筆餘額相減
+        let _wkTxt='';
+        try{
+          const bounds=[]; // 各週第一個交易日索引（由近往遠）
+          for(let i=dts.length-1;i>=1 && bounds.length<5;i--){
+            const c=new Date(dts[i]), p=new Date(dts[i-1]);
+            if(c.getDay()<p.getDay() || (c-p)/86400000>=3) bounds.push(i);
+          }
+          const balAt=function(dateStr){ let r=null; for(let i=0;i<bal.length;i++){ if(bal[i].d<dateStr) r=bal[i].b; else break; } return r; };
+          const segs=[];
+          for(let k=0;k<Math.min(4,bounds.length);k++){
+            const endD=(k===0)?null:dts[bounds[k-1]];
+            const startD=dts[bounds[k]];
+            const b0=balAt(startD);
+            let b1;
+            if(endD===null){ b1=now; } else { b1=balAt(endD); }
+            if(b0!=null&&b1!=null) segs.push({lab:(k===0?'本週':k===1?'上週':k===2?'上上週':'上上上週'), v:b1-b0});
+          }
+          if(segs.length) _wkTxt='<br><span style="color:var(--t3);font-size:9px;">逐週：'+segs.map(function(s){
+            const c=s.v>0?'var(--dn)':s.v<0?'var(--up)':'var(--t3)';
+            return s.lab+' <span style="color:'+c+';">'+(s.v>=0?'+':'')+s.v.toLocaleString()+'</span>';
+          }).join('　')+'　<span style="font-size:8.5px;">(增=空方加壓紅／減=回補綠)</span></span>';
+        }catch(_we){}
         A[1]={name:'借券賣壓', v:toScale(x,full), ev:'⚪', dir:x>0.08?'偏多':x<-0.08?'偏空':'中性',
-          note:'現在 '+now.toLocaleString()+' 張・本週 '+(chgWk>=0?'+':'')+chgWk.toLocaleString()+' 張（'+(chgWk>0?'空方加壓':chgWk<0?'空方回補':'持平')+'・'+wkDays+'日）'+spike+(wkDays<=2?'　<span style="color:var(--t3);">※週初樣本少</span>':''),
+          note:'現在 '+now.toLocaleString()+' 張・本週 '+(chgWk>=0?'+':'')+chgWk.toLocaleString()+' 張（'+(chgWk>0?'空方加壓':chgWk<0?'空方回補':'持平')+'・'+wkDays+'日）'+spike+(wkDays<=2?'　<span style="color:var(--t3);">※週初樣本少</span>':'')+_wkTxt,
           tip:'借券賣出餘額「本週累積」變化÷20日均量（與其他軸同窗；基準為上週最後一個交易日），回補為正、加壓為負。滿格門檻隨本週已過天數縮放（週一用較小的尺）。⚠ 本站 2026-08 全市場回測：借券創新高/新低的後續報酬跨族群不一致，方向為常識推定而非驗證結論；CB 價內時借券含套利對鎖成分。'};
       }
     }catch(e){}
@@ -13493,59 +13538,51 @@ async function chipRenderRadar(){
   }catch(e){
     if(!A[1]) A[1]={name:'借券賣壓',v:null,ev:'⚪',dir:'—',note:'—',tip:''};
     if(!A[2]) A[2]={name:'本週動能',v:null,ev:'✅',dir:'—',note:'—',tip:''};
+    if(!A[3]) A[3]={name:'牌手本週',v:null,ev:'⚪',dir:'—',note:'—',tip:''};
     if(!A[4]) A[4]={name:'融資性質',v:null,ev:'⚪',dir:'—',note:'—',tip:''};
   }
 
-  // ── 雷達 SVG（中性環=50，往外偏多、內縮偏空）──
-  const ORD=[0,1,2,4,3];
-  const P=ORD.map(function(i){return A[i];});
-  const cx=150,cy=118,Rr=80;
-  const ang=function(i){ return (-90+i*72)*Math.PI/180; };
-  const X=function(i,v){ return (cx+Rr*v/100*Math.cos(ang(i))).toFixed(1); };
-  const Y=function(i,v){ return (cy+Rr*v/100*Math.sin(ang(i))).toFixed(1); };
-  let sv='<svg viewBox="0 0 300 244" style="width:100%;max-width:330px;height:auto;display:block;margin:0 auto;">';
-  [25,75,100].forEach(function(rv){
-    sv+='<polygon points="'+P.map(function(_,i){return X(i,rv)+','+Y(i,rv);}).join(' ')+'" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="1"/>';
-  });
-  // 中性環（50）
-  sv+='<polygon points="'+P.map(function(_,i){return X(i,50)+','+Y(i,50);}).join(' ')+'" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="1" stroke-dasharray="3,3"/>';
-  P.forEach(function(_,i){ sv+='<line x1="'+cx+'" y1="'+cy+'" x2="'+X(i,100)+'" y2="'+Y(i,100)+'" stroke="rgba(255,255,255,.06)" stroke-width="1"/>'; });
-  const valid=P.filter(function(a){return a.v!=null;}).length;
-  if(valid>=3){
-    const avgV=P.reduce(function(s,a){return s+(a.v!=null?a.v:50);},0)/P.length;
-    const fill=avgV>=55?'rgba(63,185,80,.15)':avgV<=45?'rgba(248,81,73,.15)':'rgba(232,179,75,.12)';
-    const strk=avgV>=55?'var(--up)':avgV<=45?'var(--dn)':'var(--gold)';
-    sv+='<polygon points="'+P.map(function(a,i){return X(i,a.v==null?50:a.v)+','+Y(i,a.v==null?50:a.v);}).join(' ')+'" fill="'+fill+'" stroke="'+strk+'" stroke-width="1.6" stroke-linejoin="round"/>';
-    P.forEach(function(a,i){
-      if(a.v==null) return;
-      const c=a.v>=55?'var(--up)':a.v<=45?'var(--dn)':'var(--gold)';
-      sv+='<circle cx="'+X(i,a.v)+'" cy="'+Y(i,a.v)+'" r="3" fill="'+(a.ev==='✅'?c:'var(--bg2)')+'" stroke="'+c+'" stroke-width="1.6"/>';
-    });
-  }
-  P.forEach(function(a,i){
-    const lx=cx+(Rr+23)*Math.cos(ang(i)), ly=cy+(Rr+21)*Math.sin(ang(i));
-    const anc=(i===0)?'middle':(i<=2?'start':'end');
-    const c=(a.v==null)?'var(--t3)':(a.v>=55?'var(--up)':a.v<=45?'var(--dn)':'var(--gold)');
-    sv+='<text x="'+lx.toFixed(1)+'" y="'+(ly-2).toFixed(1)+'" text-anchor="'+anc+'" font-size="9" fill="var(--t2)" font-family="var(--mono)">'+a.name+' '+a.ev+'</text>'
-      +'<text x="'+lx.toFixed(1)+'" y="'+(ly+9).toFixed(1)+'" text-anchor="'+anc+'" font-size="9.5" font-weight="700" fill="'+c+'" font-family="var(--mono)">'+a.dir+'</text>';
-  });
-  sv+='</svg>';
+  // ── v22.5 發散橫條（取代雷達）──
+  // 為何換：雷達要在5個軸標籤間目測方向，且面積會誤導成「總分」。橫條中線＝中性、
+  // 右綠左紅，方向與幅度一眼可讀，手機直排也不擠。
+  const ORD=[0,1,2,3,4];
+  const P=ORD.map(function(i){return A[i]||{name:'—',v:null,ev:'⚪',dir:'—',note:'',tip:''};});
+  const ICON={'籌碼結構':'🏛️','借券賣壓':'🔻','本週動能':'⚡','牌手本週':'🎴','融資性質':'💳'};
+  let nB=0,nS=0,nN=0;
+  P.forEach(function(a){ if(a.v==null) return; if(a.v>=55)nB++; else if(a.v<=45)nS++; else nN++; });
+  const lean = (nB>nS+1)?{t:'整體偏多',c:'var(--up)'} : (nS>nB+1)?{t:'整體偏空',c:'var(--dn)'} : {t:'多空互見',c:'var(--gold)'};
 
-  let tb='<table style="width:100%;border-collapse:collapse;font-size:9.5px;font-family:var(--mono);">';
+  let bars='';
   P.forEach(function(a){
+    const v=(a.v==null)?50:a.v;
     const c=(a.v==null)?'var(--t3)':(a.v>=55?'var(--up)':a.v<=45?'var(--dn)':'var(--gold)');
-    tb+='<tr style="border-top:0.5px solid rgba(255,255,255,.05);"><td style="padding:3px 4px;color:var(--t1);font-weight:600;white-space:nowrap;" title="'+(a.tip||'')+'">'+a.name+' '+a.ev+'</td>'
-      +'<td style="color:'+c+';font-weight:700;white-space:nowrap;padding:0 6px;">'+a.dir+'</td>'
-      +'<td style="color:var(--t2);line-height:1.5;">'+a.note+'</td></tr>';
+    const L=Math.min(50,v), Wd=Math.abs(v-50);
+    bars+='<div style="margin-bottom:9px;">'
+      +'<div style="display:flex;align-items:center;gap:6px;font-size:10.5px;margin-bottom:3px;">'
+        +'<span title="'+(a.tip||'').replace(/"/g,'&quot;')+'" style="cursor:help;color:var(--t1);font-weight:700;white-space:nowrap;">'+(ICON[a.name]||'')+' '+a.name+'</span>'
+        +'<span title="'+(a.ev==='✅'?'框架經站內跨期回測':'方向為經驗/常識推定，未回測')+'" style="cursor:help;font-size:8.5px;color:var(--t3);">'+a.ev+'</span>'
+        +'<span style="margin-left:auto;color:'+c+';font-weight:800;white-space:nowrap;">'+a.dir+'</span>'
+      +'</div>'
+      +'<div style="position:relative;height:13px;background:var(--bg4);border-radius:3px;overflow:hidden;">'
+        +'<div style="position:absolute;left:0;right:0;top:0;bottom:0;background:linear-gradient(90deg,rgba(248,81,73,.06),transparent 45%,transparent 55%,rgba(63,185,80,.06));"></div>'
+        +(a.v==null?'':'<div style="position:absolute;left:'+L.toFixed(1)+'%;width:'+Wd.toFixed(1)+'%;top:2px;bottom:2px;background:'+c+';border-radius:2px;opacity:.85;"></div>')
+        +'<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.3);"></div>'
+      +'</div>'
+      +'<div style="font-size:9px;color:var(--t2);line-height:1.55;margin-top:3px;">'+(a.note||'')+'</div>'
+    +'</div>';
   });
-  tb+='</table>';
 
-  slot.innerHTML='<div style="background:var(--bg3);border-radius:8px;padding:10px 12px;">'
-    +'<div style="font-size:9px;color:var(--t3);margin-bottom:6px;line-height:1.6;">📊 <b style="color:var(--t2);">方向性儀表板</b>：虛線＝中性環，<span style="color:var(--up);">往外＝偏多</span>、<span style="color:var(--dn);">內縮＝偏空</span>。看的是「最近在往哪動」而非水準高低。✅=框架經站內跨期回測｜⚪=方向為經驗/常識推定，未回測。不合成總分，各軸獨立判讀。</div>'
-    +'<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">'
-    +'<div style="flex:0 1 280px;min-width:230px;">'+sv+'</div>'
-    +'<div style="flex:1 1 300px;min-width:260px;">'+tb+'</div>'
-    +'</div></div>';
+  slot.innerHTML='<div style="margin-top:9px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:11px 12px 9px;">'
+    +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
+      +'<span style="font-size:11.5px;font-weight:800;color:var(--t1);">📊 籌碼方向儀表板</span>'
+      +'<span style="font-size:9px;color:var(--t3);">本週在往哪動</span>'
+      +'<span style="margin-left:auto;font-size:11px;font-weight:800;color:'+lean.c+';">'+lean.t+'</span>'
+      +'<span style="font-size:9.5px;font-family:var(--mono);"><span style="color:var(--up);">'+nB+'多</span> <span style="color:var(--dn);">'+nS+'空</span> <span style="color:var(--t3);">'+nN+'中</span></span>'
+    +'</div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:8.5px;color:var(--t3);font-family:var(--mono);margin-bottom:5px;"><span>← 偏空</span><span>中性</span><span>偏多 →</span></div>'
+    + bars
+    +'<div style="font-size:8.5px;color:var(--t3);line-height:1.6;border-top:1px solid var(--border);padding-top:6px;margin-top:2px;">中線＝中性，往右偏多、往左偏空；長度＝幅度。<b>各軸獨立判讀、不合成總分</b>（上方多空計數僅為概覽）。✅＝框架經站內跨期回測｜⚪＝方向為經驗推定未回測。軸名可滑鼠停留看算式。</div>'
+    +'</div>';
 }
 
 // ══ 📁 全面摺疊模式（每區塊一行白話總結，點開看全文；後處理、不動各渲染函數）══
@@ -20193,6 +20230,7 @@ async function chipRunAll(){
     });
     chipRenderExecSummary();
     try { chipRenderTopVerdict(); } catch(e){ console.warn('置頂結論:', e); }
+    try { setTimeout(function(){ try{ chipRenderRadar(); }catch(e){ console.warn('方向儀表板:', e); } }, 60); } catch(e){}
     try { chipRenderPeerRS(stockId); } catch(e){ console.warn('同族群強弱:', e); }
     try { chipRenderDividendYield(stockId).then(function(){ try{ chipApplyFoldMode(); }catch(_e){} }); } catch(e){ console.warn('除權息殖利率:', e); }
     // 摺疊兜底（慢渲染區塊補摺；冪等、不重置已展開狀態）
@@ -21962,7 +22000,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── 版本戳（交付紀律：每次產出新檔即更新此行）──
 // ── 版本戳（交付紀律：每次產出新檔，版本號 +0.1、日期改為當天產出日，兩者一起改）──
-const APP_BUILD = 'v22.2（2026-08-14）';
+const APP_BUILD = 'v22.5（2026-08-14）';
 (function(){
   function stamp(){ document.querySelectorAll('.app-build').forEach(function(el){ el.textContent = APP_BUILD; }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',stamp); else stamp();
