@@ -13480,7 +13480,8 @@ async function chipRenderRadar(){
     // ── 軸5 融資性質（條件式·非單調）：爆量+融資大增=聰明錢；平量+緩增=散戶加槓桿 ──
     try{
       const mS=[...marL].sort(function(a,b){return a.date.localeCompare(b.date);});
-      const mb=mS.map(function(x){return {d:x.date,m:Math.round(parseInt(x.MarginPurchaseTodayBalance||0)/1000)};}).filter(function(x){return x.m>0;});
+      // v22.6 修：MarginPurchaseTodayBalance 單位已是「張」，不可再除1000（借券欄位為股才需除）
+      const mb=mS.map(function(x){return {d:x.date,m:parseInt(x.MarginPurchaseTodayBalance||0)};}).filter(function(x){return x.m>0;});
       // v22.2 改本週累積（與其他四軸同窗）
       const wkBoundM = dts[wkStartIdx];
       let mBaseIdx=-1;
@@ -13552,36 +13553,38 @@ async function chipRenderRadar(){
   P.forEach(function(a){ if(a.v==null) return; if(a.v>=55)nB++; else if(a.v<=45)nS++; else nN++; });
   const lean = (nB>nS+1)?{t:'整體偏多',c:'var(--up)'} : (nS>nB+1)?{t:'整體偏空',c:'var(--dn)'} : {t:'多空互見',c:'var(--gold)'};
 
-  let bars='';
+  // v22.6 卡片網格：每軸自成一張小卡（名稱／方向／橫條／明細距離都短），
+  // 寬螢幕 auto-fit 成 2-3 欄、手機自動單欄——解決橫條被拉到 1900px、視線要橫掃全寬的問題。
+  let cards='';
   P.forEach(function(a){
     const v=(a.v==null)?50:a.v;
     const c=(a.v==null)?'var(--t3)':(a.v>=55?'var(--up)':a.v<=45?'var(--dn)':'var(--gold)');
     const L=Math.min(50,v), Wd=Math.abs(v-50);
-    bars+='<div style="margin-bottom:9px;">'
-      +'<div style="display:flex;align-items:center;gap:6px;font-size:10.5px;margin-bottom:3px;">'
+    const bg=(a.v==null)?'transparent':(a.v>=55?'rgba(63,185,80,.045)':a.v<=45?'rgba(248,81,73,.045)':'rgba(232,179,75,.04)');
+    cards+='<div style="background:'+bg+';border:1px solid var(--border);border-radius:8px;padding:8px 10px 7px;min-width:0;">'
+      +'<div style="display:flex;align-items:baseline;gap:5px;font-size:10.5px;margin-bottom:5px;">'
         +'<span title="'+(a.tip||'').replace(/"/g,'&quot;')+'" style="cursor:help;color:var(--t1);font-weight:700;white-space:nowrap;">'+(ICON[a.name]||'')+' '+a.name+'</span>'
-        +'<span title="'+(a.ev==='✅'?'框架經站內跨期回測':'方向為經驗/常識推定，未回測')+'" style="cursor:help;font-size:8.5px;color:var(--t3);">'+a.ev+'</span>'
-        +'<span style="margin-left:auto;color:'+c+';font-weight:800;white-space:nowrap;">'+a.dir+'</span>'
+        +'<span title="'+(a.ev==='✅'?'框架經站內跨期回測':'方向為經驗/常識推定，未回測')+'" style="cursor:help;font-size:8px;color:var(--t3);">'+a.ev+'</span>'
+        +'<span style="margin-left:auto;color:'+c+';font-weight:800;font-size:11px;white-space:nowrap;">'+a.dir+'</span>'
       +'</div>'
-      +'<div style="position:relative;height:13px;background:var(--bg4);border-radius:3px;overflow:hidden;">'
-        +'<div style="position:absolute;left:0;right:0;top:0;bottom:0;background:linear-gradient(90deg,rgba(248,81,73,.06),transparent 45%,transparent 55%,rgba(63,185,80,.06));"></div>'
-        +(a.v==null?'':'<div style="position:absolute;left:'+L.toFixed(1)+'%;width:'+Wd.toFixed(1)+'%;top:2px;bottom:2px;background:'+c+';border-radius:2px;opacity:.85;"></div>')
-        +'<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.3);"></div>'
+      +'<div style="position:relative;height:10px;background:var(--bg4);border-radius:5px;overflow:hidden;margin-bottom:5px;">'
+        +(a.v==null?'':'<div style="position:absolute;left:'+L.toFixed(1)+'%;width:'+Wd.toFixed(1)+'%;top:2px;bottom:2px;background:'+c+';border-radius:2px;"></div>')
+        +'<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.28);"></div>'
       +'</div>'
-      +'<div style="font-size:9px;color:var(--t2);line-height:1.55;margin-top:3px;">'+(a.note||'')+'</div>'
+      +'<div style="font-size:9px;color:var(--t2);line-height:1.6;">'+(a.note||'')+'</div>'
     +'</div>';
   });
 
-  slot.innerHTML='<div style="margin-top:9px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:11px 12px 9px;">'
-    +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
+  slot.innerHTML='<div style="margin-top:9px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 12px 9px;">'
+    +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">'
       +'<span style="font-size:11.5px;font-weight:800;color:var(--t1);">📊 籌碼方向儀表板</span>'
       +'<span style="font-size:9px;color:var(--t3);">本週在往哪動</span>'
-      +'<span style="margin-left:auto;font-size:11px;font-weight:800;color:'+lean.c+';">'+lean.t+'</span>'
-      +'<span style="font-size:9.5px;font-family:var(--mono);"><span style="color:var(--up);">'+nB+'多</span> <span style="color:var(--dn);">'+nS+'空</span> <span style="color:var(--t3);">'+nN+'中</span></span>'
+      +'<span style="margin-left:auto;font-size:11.5px;font-weight:800;color:'+lean.c+';">'+lean.t+'</span>'
+      +'<span style="font-size:10px;font-family:var(--mono);"><span style="color:var(--up);">'+nB+'多</span>·<span style="color:var(--dn);">'+nS+'空</span>·<span style="color:var(--t3);">'+nN+'中</span></span>'
     +'</div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:8.5px;color:var(--t3);font-family:var(--mono);margin-bottom:5px;"><span>← 偏空</span><span>中性</span><span>偏多 →</span></div>'
-    + bars
-    +'<div style="font-size:8.5px;color:var(--t3);line-height:1.6;border-top:1px solid var(--border);padding-top:6px;margin-top:2px;">中線＝中性，往右偏多、往左偏空；長度＝幅度。<b>各軸獨立判讀、不合成總分</b>（上方多空計數僅為概覽）。✅＝框架經站內跨期回測｜⚪＝方向為經驗推定未回測。軸名可滑鼠停留看算式。</div>'
+    +'<div style="font-size:8.5px;color:var(--t3);margin-bottom:8px;">每張卡：中線＝中性，<span style="color:var(--dn);">左＝偏空</span>／<span style="color:var(--up);">右＝偏多</span>，長度＝幅度</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:8px;">'+cards+'</div>'
+    +'<div style="font-size:8.5px;color:var(--t3);line-height:1.6;border-top:1px solid var(--border);padding-top:6px;margin-top:8px;"><b>各軸獨立判讀、不合成總分</b>（右上多空計數僅為概覽，非評分）。✅＝框架經站內跨期回測｜⚪＝方向為經驗推定未回測。軸名可滑鼠停留看算式與口徑限制。</div>'
     +'</div>';
 }
 
@@ -22000,7 +22003,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── 版本戳（交付紀律：每次產出新檔即更新此行）──
 // ── 版本戳（交付紀律：每次產出新檔，版本號 +0.1、日期改為當天產出日，兩者一起改）──
-const APP_BUILD = 'v22.5（2026-08-14）';
+const APP_BUILD = 'v22.6（2026-08-14）';
 (function(){
   function stamp(){ document.querySelectorAll('.app-build').forEach(function(el){ el.textContent = APP_BUILD; }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',stamp); else stamp();
