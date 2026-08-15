@@ -13369,6 +13369,16 @@ async function chipRenderRadar(){
       }
       return [];
     };
+    // v22.7 ③(chipRenderFlows) 是 async 且未 await，_chipFlow5 通常晚於本函式數秒才寫入。
+    // 與下方 API 抓取「並行」輪詢等待（抓取本來就要 10-20 秒，等待幾乎不增加總時間）。
+    const waitFlow5 = (async function(){
+      for(let t=0;t<40;t++){
+        const c=window._chipFlow5;
+        if(c && (!c.stockId || String(c.stockId)===String(sid))) return c;
+        await new Promise(function(r){ setTimeout(r,500); });
+      }
+      return null;
+    })();
     const [rPx,rIdx,rSbl,rMar,rDt]=await Promise.allSettled([
       chipFetchProxy('TaiwanStockPrice',sid,120),
       fetchIdx(),
@@ -13398,8 +13408,22 @@ async function chipRenderRadar(){
 
     // ── 軸4 牌手本週淨額 ÷ 本週「扣當沖」成交量（使用者建議：同窗同口徑，不用20日均量）──
     try{
-      let f5=window._chipFlow5;
-      if(f5&&f5.stockId&&String(f5.stockId)!==String(sid)) f5=null;
+      let f5=await waitFlow5;
+      // fallback：③ 若未寫入（例如該區塊渲染失敗），直接用 ②牌手群逐日資料自算本週淨額
+      if(!f5){
+        try{
+          const R=_chipGuardRoles();
+          if(R){
+            const seen={}, uniq=[];
+            [].concat(R.oldG||[],R.newG||[],R.sellers||[]).forEach(function(b){ if(b&&b.name&&!seen[b.name]){ seen[b.name]=1; uniq.push(b); } });
+            if(uniq.length){
+              let n=0;
+              for(let i=wkStartIdx;i<dts.length;i++){ const d=dts[i]; uniq.forEach(function(b){ n+=(b.daily&&b.daily[d])||0; }); }
+              f5={cum:Math.round(n), cumEx:null, fallback:true};
+            }
+          }
+        }catch(_fe){}
+      }
       let wkVol=0, wkAdj=0, dtSum=0, dtN=0;
       for(let i=wkStartIdx;i<dts.length;i++){
         const d=dts[i], v=vol[d]||0; if(!(v>0)) continue;
@@ -13411,12 +13435,12 @@ async function chipRenderRadar(){
         const x=net/wkAdj;   // 牌手淨額佔本週真實換手的比例
         const dtAvg=dtN?(dtSum/dtN*100):null;
         A[3]={name:'牌手本週', v:toScale(x,0.25), ev:'⚪', dir:x>0.025?'偏多':x<-0.025?'偏空':'中性',
-          note:'本週'+(net>=0?'買超 +':'賣超 ')+net.toLocaleString()+' 張＝本週扣當沖量的 <b>'+(x*100).toFixed(1)+'%</b>'+(f5.cumEx!=null?'（已剔對敲）':'')
+          note:'本週'+(net>=0?'買超 +':'賣超 ')+net.toLocaleString()+' 張＝本週扣當沖量的 <b>'+(x*100).toFixed(1)+'%</b>'+(f5.cumEx!=null?'（已剔對敲）':(f5.fallback?'<span style="color:var(--t3);">（未剔對敲）</span>':''))
             +'<br><span style="color:var(--t3);font-size:9px;">本週量 '+Math.round(wkVol).toLocaleString()+' 張'+(dtAvg!=null?('・當沖 '+dtAvg.toFixed(0)+'%'):'')+' → 扣當沖 '+Math.round(wkAdj).toLocaleString()+' 張（'+wkDays+'日）</span>',
           tip:'②三群牌手本週累積淨額 ÷ 本週扣當沖成交量（＝Σ 日量×(1−當沖率)）。分子分母同窗同口徑，回答「本週真實換手裡，牌手佔了多少方向性部位」。±25% 對應滿格。已剔除對敲嫌疑分點。口徑限制：分點僅前15大買賣超（分子低估）、當沖率為全市場統計非分點層級。'};
       }
     }catch(e){}
-    if(!A[3]) A[3]={name:'牌手本週',v:null,ev:'⚪',dir:'—',note:'牌手或當沖資料不足',tip:''};
+    if(!A[3]) A[3]={name:'牌手本週',v:null,ev:'⚪',dir:'—',note:'牌手資料未就緒（③分點區塊尚未完成或無買超群）',tip:''};
 
     // ── 軸3 本週動能 vs 大盤（✅ RS 已驗證）──
     try{
@@ -22003,7 +22027,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── 版本戳（交付紀律：每次產出新檔即更新此行）──
 // ── 版本戳（交付紀律：每次產出新檔，版本號 +0.1、日期改為當天產出日，兩者一起改）──
-const APP_BUILD = 'v22.6（2026-08-14）';
+const APP_BUILD = 'v22.7（2026-08-14）';
 (function(){
   function stamp(){ document.querySelectorAll('.app-build').forEach(function(el){ el.textContent = APP_BUILD; }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',stamp); else stamp();
