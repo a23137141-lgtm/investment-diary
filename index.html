@@ -12271,6 +12271,10 @@ async function chipRenderFlows(){
   // 呈現「是平常的幾倍」。口徑限制：分點僅前15大買賣超（分子低估）、當沖率為全市場統計非分點層級
   // （分子分母當沖處理不對稱）→ 只看相對倍數，不看絕對值（相對排名才政權不變）。
   // A＝gross÷扣當沖量（參與度）只用於「高換手沒方向」單一組合的提示，與對敲偵測互證。
+  // v22.14 註記（實測結論）：曾嘗試「歷史日只計已進場分點」以修選樣偏誤——實測 2376 結果完全相同
+  // （觸發23次 vs 23次、名次逐日一致），因未進場者當日淨額為 0，計入與否對加總無影響，屬空操作，已撤回。
+  // 真正的偏誤是名單用「整段窗」選出（近期買最多者入榜），歷史段等於「這批人當年做了什麼」而非
+  // 「當年的前N大做了什麼」——只有逐日重選 roles（改寫②分群、約90次重算）能修，成本高暫不採行，改以揭露處理。
   const _forceB = {}, _forceA = {};
   allDates.forEach(function(d){
     const av = adjVol(d); if(!(av>0)) return;
@@ -12286,8 +12290,10 @@ async function chipRenderFlows(){
     if(win.length<20 || map[dt]==null) return null;
     win.sort(function(a,b){return a-b;});
     const med = win[Math.floor(win.length/2)];
-    let below=0; win.forEach(function(v){ if(v<=map[dt]) below++; });
-    return { x:(med>0? map[dt]/med : null), p:Math.round(below/win.length*100) };
+    let below=0, above=0;
+    win.forEach(function(v){ if(v<=map[dt]) below++; else above++; });
+    // v22.13 補名次：百分位對人腦不直觀（且 p=100 會算出「前0%」的無意義字樣），改用「第N名」呈現
+    return { x:(med>0? map[dt]/med : null), p:Math.round(below/win.length*100), rank:above+1, n:win.length+1 };
   };
   // 白話註記：每天最多一句、只在極端時出現（≥2x 出力／高換手沒方向／量比≥1.5 且 ≤0.3x 沒出力）
   // 門檻（先定條件）：出力＝近60日前10%（P≥90）；沒出力＝後15%（P≤15）；
@@ -12296,17 +12302,32 @@ async function chipRenderFlows(){
     try{
       const b = _forceRatio(_forceB, dt);
       if(b==null) return '';
-      const tip = '牌手力度＝|牌手淨額|÷扣當沖量，再放回這檔自己近60日的分佈定位。P90＝近60日最用力的前10%。口徑：分點只有前15大買賣超、當沖為全市場統計，故看相對位置不看絕對%。';
-      const xs = (b.x!=null? '（'+b.x.toFixed(1)+'倍平常）' : '');
+      const tip = '「用力」＝這些牌手今天的淨買(賣)張數，佔掉今天多少真實成交量（總量已扣掉當沖來回的部分）。再跟這檔股票自己過去60天比：排進前10名才會標。講的是「相對這檔平常的樣子」，不跨股比較。｜窗長：取60日（約3個月）。4檔實測（2376/2330/5439/6903）顯示窗長影響顯著且因股而異：20日觸發17~24次、60日10~14次、120日3~9次，且60日觸發有3~11次不在120日名單內——即「近60日罕見」與「近120日罕見」是兩件事，60日答的是「相對最近3個月」。此為口徑設定非回測結論；判讀請併看後方的「佔當日真實換手 X%」絕對值。｜偏誤揭露：牌手名單是用「整段分點窗誰買最多」選出的，所以歷史段代表「這批人當年做了什麼」而非「當年的主力做了什麼」，名次可能略偏高。完整修法需逐日重選名單（成本高未採行）——故同時提供「佔當日真實換手 X%」作為不依賴排名的絕對參考。｜連續進榜時各日基準線不同（含前一日），名次不可直接互比。';
+      const xs = (b.x!=null? '，是平常的 '+b.x.toFixed(1)+' 倍' : '');
       if(b.p>=90){
-        return '<span title="'+tip+'" style="cursor:help;color:'+(net>0?'var(--up)':'var(--amber)')+';font-size:9.5px;">💪 牌手'+(net>0?'出力買':'出力賣')+'——近60日最用力的前 '+(100-b.p)+'% '+xs+'</span>';
+        const days=b.n||60;
+        const place = (b.rank<=1) ? ('近'+days+'天買賣最大的一天') : ('近'+days+'天排第 '+b.rank+' 大');
+        // v22.14 連續進榜：叢集本身是資訊（連日重壓 > 單日爆量），且提醒各日基準線不同
+        let streak=0;
+        try{
+          const ix=allDates.indexOf(dt);
+          for(let k=ix;k>=0;k--){
+            const r2=_forceRatio(_forceB, allDates[k]);
+            if(r2!=null && r2.p>=90) streak++; else break;
+          }
+        }catch(_st){}
+        const stk = (streak>=2) ? ('<span style="color:var(--gold);">・連 '+streak+' 日進榜</span>') : '';
+        // 絕對錨點：不依賴排名也能判斷的原始比例
+        const av2 = adjVol(dt);
+        const anchor = (av2>0) ? ('<span style="color:var(--t3);">（淨'+(net>0?'買':'賣')+' '+Math.abs(net).toLocaleString()+' 張＝當日真實換手的 '+(Math.abs(net)/av2*100).toFixed(1)+'%）</span>') : '';
+        return '<span title="'+tip+'" style="cursor:help;color:'+(net>0?'var(--up)':'var(--amber)')+';font-size:9.5px;">💪 牌手用力'+(net>0?'買':'賣')+'——'+place+xs+stk+' '+anchor+'</span>';
       }
       const a = _forceRatio(_forceA, dt);
       if(a!=null && a.p>=90 && b.p<=30){
-        return '<span title="'+tip+'　高換手＋低淨額＝大量進出但方向抵銷，常見於對倒或換手，與對敲偵測互相印證。" style="cursor:help;color:var(--t3);font-size:9.5px;">🔁 牌手大量進出但沒方向——對倒／換手味</span>';
+        return '<span title="'+tip+'　高換手＋低淨額＝大量進出但方向抵銷，常見於對倒或換手，與對敲偵測互相印證。" style="cursor:help;color:var(--t3);font-size:9.5px;">🔁 牌手進出很大，但買和賣幾乎抵銷——看不出方向（對倒或換手）</span>';
       }
       if(vr!=null && vr>=1.5 && b.p<=15){
-        return '<span title="'+tip+'" style="cursor:help;color:var(--t3);font-size:9.5px;">😴 量放大但牌手沒出力——這根主要是散戶互相成交出來的</span>';
+        return '<span title="'+tip+'" style="cursor:help;color:var(--t3);font-size:9.5px;">😴 今天量放大，但牌手沒跟——這根量多半是散戶自己買賣出來的</span>';
       }
       return '';
     }catch(_e){ return ''; }
@@ -22368,7 +22389,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── 版本戳（交付紀律：每次產出新檔即更新此行）──
 // ── 版本戳（交付紀律：每次產出新檔，版本號 +0.1、日期改為當天產出日，兩者一起改）──
-const APP_BUILD = 'v22.12（2026-08-14）';
+const APP_BUILD = 'v22.15（2026-08-14）';
 (function(){
   function stamp(){ document.querySelectorAll('.app-build').forEach(function(el){ el.textContent = APP_BUILD; }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',stamp); else stamp();
