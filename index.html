@@ -130,46 +130,45 @@ window.renderInvViz = function(){
     + '<text x="95" y="104" text-anchor="middle" style="font-size:9px;fill:var(--t3);">目前持股加權盈虧</text>'
     + '<text x="95" y="118" text-anchor="middle" style="font-size:10px;fill:'+tc+';font-family:var(--mono);">'
     + (totPnl>=0?'+':'')+Math.round(totPnl).toLocaleString()+'</text></svg>';
-  // ── 長條圖 ──
-  const barSrc = window._invVizMode==='amt'
+  // ── v22.18 水平發散條列（合併原「側邊清單＋直條圖」：兩者本畫同一份數據，重複且視線分裂）──
+  // 每檔一列：名稱｜發散條（中線=0，紅右=賺、綠左=賠，台股慣例）｜主數值｜次數值。
+  const rowSrc = window._invVizMode==='amt'
     ? items.slice().sort(function(a,b){ return b.pnl - a.pnl; })
     : sorted;
-  const maxAbs = Math.max.apply(null, barSrc.map(function(x){
+  const maxAbs = Math.max.apply(null, rowSrc.map(function(x){
     return Math.abs(window._invVizMode==='amt' ? x.pnl : x.pct); })) || 1;
-  const bars = barSrc.map(function(x){
+  const hrows = rowSrc.map(function(x){
     const v = window._invVizMode==='amt' ? x.pnl : x.pct;
-    const h = Math.max(3, Math.abs(v)/maxAbs*72);
-    const lbl = window._invVizMode==='amt'
-      ? ((v>=0?'+':'')+Math.round(v/1000)+'k')
-      : ((v>=0?'+':'')+v.toFixed(1)+'%');
-    const nm = window._invVizHideName ? '＊＊' : String(x.name).slice(0,4);
-    return '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:38px;">'
-      + '<div style="font-size:8.5px;color:'+(v>=0?'var(--up)':'var(--dn)')+';white-space:nowrap;font-family:var(--mono);">'+lbl+'</div>'
-      + '<div style="width:22px;height:'+h.toFixed(0)+'px;background:'+col(v>=0?Math.abs(x.pct):-Math.abs(x.pct))+';border-radius:3px 3px 0 0;"></div>'
-      + '<div style="font-size:8px;color:var(--t3);white-space:nowrap;writing-mode:vertical-rl;height:34px;overflow:hidden;">'+nm+'</div>'
+    const main = window._invVizMode==='amt'
+      ? ((v>=0?'+':'')+Math.round(v).toLocaleString())
+      : ((v>=0?'+':'')+v.toFixed(2)+'%');
+    const sub = window._invVizMode==='amt'
+      ? ((x.pct>=0?'+':'')+x.pct.toFixed(1)+'%')
+      : ((x.pnl>=0?'+':'')+Math.round(x.pnl/1000)+'k');
+    const nm = window._invVizHideName ? '＊＊＊' : x.name;
+    const w = Math.max(1.5, Math.abs(v)/maxAbs*50);
+    const c = v>=0 ? 'var(--up)' : 'var(--dn)';
+    const L = v>=0 ? 50 : 50-w;
+    return '<div title="市值 '+Math.round(x.mv).toLocaleString()+'　佔持股 '+(x.mv/totMv*100).toFixed(1)+'%" style="display:flex;align-items:center;gap:9px;min-width:0;">'
+      + '<span style="flex:0 0 84px;font-size:10.5px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+nm+'</span>'
+      + '<div style="flex:1;position:relative;height:12px;background:var(--bg4);border-radius:6px;overflow:hidden;min-width:60px;">'
+      +   '<div style="position:absolute;left:'+L.toFixed(1)+'%;width:'+w.toFixed(1)+'%;top:2px;bottom:2px;background:'+c+';opacity:.85;border-radius:3px;"></div>'
+      +   '<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.25);"></div>'
+      + '</div>'
+      + '<span style="flex:0 0 78px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:700;color:'+c+';white-space:nowrap;">'+main+'</span>'
+      + '<span style="flex:0 0 52px;text-align:right;font-family:var(--mono);font-size:9px;color:var(--t3);white-space:nowrap;">'+sub+'</span>'
       + '</div>';
   }).join('');
-  // ── 側邊清單 ──
-  const list = sorted.map(function(x){
-    const nm = window._invVizHideName ? '＊＊＊' : x.name;
-    return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:10px;line-height:1.75;">'
-      + '<span style="color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+nm+'</span>'
-      + '<span style="font-family:var(--mono);color:'+(x.pct>=0?'var(--up)':'var(--dn)')+';white-space:nowrap;">'
-      + (x.pct>=0?'+':'')+x.pct.toFixed(2)+'%</span></div>';
-  }).join('');
   box.innerHTML =
-      '<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;">'
+      '<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">'
     +   donut
-    +   '<div style="flex:1;min-width:120px;max-width:230px;">'+list+'</div>'
-    +   '<div style="flex:2;min-width:230px;">'
-    +     '<div style="display:flex;align-items:flex-end;gap:4px;overflow-x:auto;padding-bottom:2px;min-height:120px;">'+bars+'</div>'
-    +   '</div>'
+    +   '<div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:7px;">'+hrows+'</div>'
     + '</div>'
     + '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center;">'
     +   '<button class="chip'+(window._invVizMode==='pct'?' active':'')+'" style="font-size:10px;" onclick="window._invVizMode=\'pct\';renderInvViz();">報酬率</button>'
     +   '<button class="chip'+(window._invVizMode==='amt'?' active':'')+'" style="font-size:10px;" onclick="window._invVizMode=\'amt\';renderInvViz();">損益金額</button>'
     +   '<button class="chip'+(window._invVizHideName?' active':'')+'" style="font-size:10px;" onclick="window._invVizHideName=!window._invVizHideName;renderInvViz();">隱藏名稱</button>'
-    +   '<span style="font-size:8.5px;color:var(--t3);margin-left:auto;">圈的大小＝市值佔比；顏色深淺＝損益幅度。台股慣例紅賺綠賠。</span>'
+    +   '<span style="font-size:8.5px;color:var(--t3);margin-left:auto;">圈＝市值佔比（滑鼠停留看明細）；橫條中線＝損益兩平，紅右賺綠左賠。</span>'
     + '</div>';
   box.style.display = 'block';
 };
@@ -1486,18 +1485,20 @@ td[onclick*="chipShowBrokerDetail"]:hover{background:rgba(96,165,250,.14);box-sh
   transition:all .15s;
 }
 .cal-nav button:hover{border-color:var(--border-gold);color:var(--gold);}
-.cal-dows{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;}
+.cal-dows{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;max-width:760px;}
 .cdow{font-size:12px;color:var(--t1);text-align:center;padding:5px 0;font-family:var(--mono);font-weight:500;}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;max-width:760px;}
 .cday{
-  aspect-ratio:1;border-radius:10px;
+  /* v22.19 aspect-ratio:1 在寬螢幕會讓格子高度＝欄寬（1900px→265px），日曆巨大化。
+     加 max-height 卡住上限；手機欄寬本就 <70px，仍維持正方形不受影響。 */
+  aspect-ratio:1;max-height:78px;min-height:44px;border-radius:10px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   cursor:pointer;border:1px solid transparent;
   transition:all .15s;
 }
 .cday:hover{border-color:var(--border-gold);background:var(--gold-d);}
-.cday .dn{font-size:15px;color:var(--t1);line-height:1;font-family:var(--mono);font-weight:600;}
-.cday .pv{font-size:9px;margin-top:4px;line-height:1;font-family:var(--mono);font-weight:700;}
+.cday .dn{font-size:13px;color:var(--t1);line-height:1;font-family:var(--mono);font-weight:600;}
+.cday .pv{font-size:8.5px;margin-top:3px;line-height:1;font-family:var(--mono);font-weight:700;}
 .cday.profit{
   background:rgba(255,77,77,.1);
   border-color:rgba(255,77,77,.2);
@@ -11878,6 +11879,7 @@ async function chipRenderDealers(){
       _kT[k.t]=(_kT[k.t]||0)+1;
     });
     const _kg=_kT['★固執']||0, _ky=_kT['猶豫']||0, _ko=_kT['順勢抱著']||0, _kp=_kT['高賣低買']||0;
+    try{ window._chipKosto={ stockId:String((window._chipData&&window._chipData.stockId)||''), g:_kg, y:_ky, o:_ko, p:_kp }; }catch(_ke2){}
     if(_kg+_ky+_ko+_kp>0){
       _kSummary = '<div title="科斯托蘭尼：行情漲跌取決於股票在誰手上——籌碼從猶豫者流向固執者是底部特徵、反向是頭部特徵。⚪敘事層：描述這桌組成，不預測方向（retention 跨期回測已降級）。分類條件：留存≥70%＋前日跌時買≥55%＝固執；留存≤30%＋前日跌時賣≥60%＝猶豫。" style="cursor:help;font-size:9.5px;color:var(--t2);margin:6px 0 8px;padding:5px 8px;background:var(--bg3);border-radius:6px;line-height:1.6;">🃏 這桌組成（科斯托蘭尼·⚪敘事）：<b style="color:var(--gold);">★固執 '+_kg+'</b> vs <b style="color:var(--dn);">猶豫 '+_ky+'</b>'
         +(_ko?('　·　順勢抱著 '+_ko):'')+(_kp?('　·　高賣低買 '+_kp):'')
@@ -12298,6 +12300,16 @@ async function chipRenderFlows(){
   // 白話註記：每天最多一句、只在極端時出現（≥2x 出力／高換手沒方向／量比≥1.5 且 ≤0.3x 沒出力）
   // 門檻（先定條件）：出力＝近60日前10%（P≥90）；沒出力＝後15%（P≤15）；
   // 對倒＝參與度P≥90 且 方向P≤30。倍數仍顯示給人看（直觀），但觸發與否由百分位決定。
+  // v22.17 力度近5日純文字摘要（供 AI 判決；蓋章）
+  try{
+    const rows=[];
+    allDates.slice(-5).forEach(function(dt){
+      const b=_forceRatio(_forceB, dt); if(!b||b.p<90) return;
+      const net=netOf(dt), av=adjVol(dt);
+      rows.push(dt.slice(5)+' 用力'+(net>0?'買':'賣')+'·近'+(b.n||60)+'天第'+b.rank+'大·'+(b.x!=null?b.x.toFixed(1)+'倍平常':'')+(av>0?('·淨'+(net>0?'買':'賣')+Math.abs(Math.round(net)).toLocaleString()+'張＝當日真實換手'+(Math.abs(net)/av*100).toFixed(1)+'%'):''));
+    });
+    window._chipForce5={ stockId:String((window._chipData&&window._chipData.stockId)||''), rows:rows };
+  }catch(_fx){}
   const forceNoteOf = function(dt, net, vr){
     try{
       const b = _forceRatio(_forceB, dt);
@@ -13278,7 +13290,8 @@ function chipRenderTopVerdict(){
           // 兩期一致：回補幅度大的組別，後20日表現不優於甚至差於「幾乎沒回補」的組。
           // 合理機制：借券餘額下降多半發生在股價已經跌完、空方獲利了結之後——它是「跌勢的落後指標」，
           //   不是「即將上漲的領先指標」。故移除「潛在助漲」的多空暗示，改為中性事實陳述。
-          parts.push('<b style="color:var(--t2);">借券自 '+CV.hiDate.slice(5)+' 高點回補 '+CV.drop.toLocaleString()+' 張（−'+CV.dropPct.toFixed(0)+'%'+(CV.heavy?'·大量':'')+'）</b>');
+          // v22.16 補起訖數值：只講「回補 X 張」看不出基數大小，補上「A → B 張」才能判斷規模
+          parts.push('<b style="color:var(--t2);">借券自 '+CV.hiDate.slice(5)+' 高點回補 '+CV.drop.toLocaleString()+' 張（'+CV.hiBal.toLocaleString()+' → '+CV.nowBal.toLocaleString()+' 張・−'+CV.dropPct.toFixed(0)+'%'+(CV.heavy?'·大量':'')+'）</b>');
         } else if(LT && LT.chgPct != null && LT.chg > 0 && LT.chgPct >= 15 && !LT.loIsRecent){
           parts.push('<b style="color:var(--dn);">🔻借券自 '+LT.loDate.slice(5)+' 低點堆積 +'+LT.chg.toLocaleString()+' 張（+'+LT.chgPct.toFixed(0)+'%）</b>'+(LT.nowPctFloat!=null?'（佔流通 '+LT.nowPctFloat.toFixed(1)+'%）':''));
         }
@@ -13327,6 +13340,7 @@ function chipRenderTopVerdict(){
     + '</div>'
     // v21.3 籌碼五角定位（首次展開才抓長資料，避免每次分析都耗 4 個 API call）
     + '<div style="margin-top:9px;">'
+    + '<div id="chip-cross-alert"></div>'
     + '<div id="chip-radar-slot"></div>'
     + '</div>'
     // 教學附錄（原「個股籌碼規則」「新手4步」併入本卡：點開展開在卡片正下方）
@@ -13952,8 +13966,28 @@ async function chipRenderRadar(){
       else if(pkSell&&moUp) crossNote='<span style="color:var(--amber);">🔍 背離：價在走強、牌手卻在倒——拉高出貨的常見型（⚪未回測，請對照③逐日與力度註記）。</span>';
     }
   }catch(_xe){}
+  // v22.16 背離訊號同步到置頂診斷卡（此處為使用者每日第一眼位置，儀表板在下方需捲動）
+  try{
+    const ce=document.getElementById('chip-cross-alert');
+    if(ce){
+      if(crossNote && crossNote.indexOf('🔍')>=0){
+        const isBull = crossNote.indexOf('吸籌')>=0;
+        const bc = isBull? 'var(--gold)':'var(--amber)';
+        ce.innerHTML='<div style="margin-top:7px;padding:7px 10px;border-left:3px solid '+bc+';background:rgba(232,179,75,.07);border-radius:0 6px 6px 0;font-size:10.5px;line-height:1.65;color:var(--t1);">'
+          +'<b style="color:'+bc+';">🔍 軸際背離</b>　'+crossNote.replace(/<span[^>]*>|<\/span>/g,'')
+          +'<div style="font-size:8.5px;color:var(--t3);margin-top:2px;">⚪ 未回測·供留意非訊號｜詳見下方儀表板牌手／動能兩軸</div></div>';
+      } else { ce.innerHTML=''; }
+    }
+  }catch(_ca){}
   let nB=0,nS=0,nN=0;
   P.forEach(function(a){ if(a.v==null||a.noVote) return; if(a.v>=55)nB++; else if(a.v<=45)nS++; else nN++; });  // v22.10 資訊軸不投票
+  // v22.17 曝露給 AI 判決（蓋章）：餵已算好的結論而非原始數據
+  try{
+    const _plain=function(s){ return String(s||'').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim(); };
+    window._chipDashboard={ stockId:String(sid), nB:nB, nS:nS, nN:nN,
+      axes:P.map(function(a){ return { name:a.name, ev:a.ev, noVote:!!a.noVote, stale:!!a.stale, dir:_plain(a.dir), note:_plain(a.note).slice(0,180) }; }),
+      cross:_plain(crossNote) };
+  }catch(_ex){}
   const lean = (nB>nS+1)?{t:'整體偏多',c:'var(--up)'} : (nS>nB+1)?{t:'整體偏空',c:'var(--dn)'} : {t:'多空互見',c:'var(--gold)'};
 
   // v22.6 卡片網格：每軸自成一張小卡（名稱／方向／橫條／明細距離都短），
@@ -20440,7 +20474,8 @@ async function chipRunAll(){
     ['_chipDealers','_chipStageRoles','_chipFlowJudgments','_chipSeatsData','_chipSblDaily',
      '_dayTradeFlags','_chipDividend','_chipForeignHold','_chipThresholdInfo','_peerMeta',
      '_dtSeries','_chipDTCache','_stageOverlap','_hoardThLots','_bfDev','_chipDepth','_chipData',
-     '_chipFlow5','_sblRaw','_chipStageGroups','_lendTurn','_margTurn','_chipInstByDate'  // v21.8 補：v20.8~21.5 新增的跨股殘留源
+     '_chipFlow5','_sblRaw','_chipStageGroups','_lendTurn','_margTurn','_chipInstByDate',  // v21.8 補：v20.8~21.5 新增的跨股殘留源
+     '_chipDashboard','_chipKosto','_chipForce5','_whaleHistSeries'  // v22.17 補：AI判決資料源＋區間圖序列
     ].forEach(function(k){ try{ delete window[k]; }catch(_e){ window[k]=undefined; } });
   }catch(_e){}
 
@@ -21351,6 +21386,41 @@ async function chipAiJudge(){
         '價格自快照 ' + (wf.priceChg>=0?'+':'') + wf.priceChg.toFixed(1) + '%，量能自快照後為前20日均量的 ' + wf.volRatio.toFixed(2) + '倍' + NL +
         '系統印證判斷：' + wf.light + ' ' + wf.title + '（週結構' + (wf.structDir>0?'偏多':wf.structDir<0?'偏空':'中性') + ' vs 本週動能' + (wf.momoDir>0?'偏多':wf.momoDir<0?'偏空':'中性') + '）→ ' + wf.desc + NL + NL;
     })() +
+    (function(){
+      // v22.17 新元素段：儀表板五軸／軸際背離／力度／科斯托蘭尼（皆蓋章驗證，缺則略）
+      var s='', sid=String(d.stockId||'');
+      try{
+        var DB=window._chipDashboard;
+        if(DB && String(DB.stockId)===sid){
+          s+='【籌碼方向儀表板（本週·滿格＝該股自身歷史每週變化P90）】'+NL;
+          DB.axes.forEach(function(a){
+            s+=a.name+'（'+a.ev+(a.noVote?'·資訊軸不投票':'')+(a.stale?'·⏳集保落後':'')+'）：'+a.dir+'｜'+a.note+NL;
+          });
+          s+='票數（資訊軸不計）：'+DB.nB+'多 '+DB.nS+'空 '+DB.nN+'中'+NL;
+          if(DB.cross) s+='⚡軸際訊號：'+DB.cross+NL;
+          s+=NL;
+        }
+      }catch(_e1){}
+      try{
+        var F5=window._chipForce5;
+        if(F5 && String(F5.stockId)===sid && F5.rows.length){
+          s+='【牌手力度註記·近5日（⚪相對自身60日分佈）】'+NL+F5.rows.join(NL)+NL+NL;
+        }
+      }catch(_e2){}
+      try{
+        var K=window._chipKosto;
+        if(K && String(K.stockId)===sid && (K.g+K.y+K.o+K.p)>0){
+          s+='【科斯托蘭尼桌面組成（⚪敘事層·retention跨期回測已降級，僅描述不預測）】★固執 '+K.g+'家 vs 猶豫 '+K.y+'家'+(K.o?('·順勢抱著 '+K.o):'')+(K.p?('·高賣低買 '+K.p):'')+NL+NL;
+        }
+      }catch(_e3){}
+      if(s) s='━━ 以下為進階判讀層（注意各項證據等級標記）━━'+NL+s;
+      return s;
+    })() +
+    '## 證據分級鐵律（凌駕一切判讀）' + NL +
+    '* 標 ✅ 者＝框架經站內跨期回測，可作為判決證據。' + NL +
+    '* 標 ⚪ 者＝未回測的敘事層/經驗規則，只能作為觀察線索與劇本佐證，不得單獨支撐「可進場/迴避」的結論。' + NL +
+    '* 標「資訊軸」的借券數據：本站全市場回測（146檔/1457事件）確認其增減對後續報酬無跨族群一致的預測力——第三關只能引用其「事實」（加壓/回補/CB對鎖），嚴禁把借券增減本身當成多空證據。' + NL +
+    '* 若出現 🔍 軸際背離（牌手與價格不同向），必須在「主力劇本推演」中正面處理它，不得忽略。' + NL + NL +
     '## 回應架構（嚴格遵守，繁體中文，全文不超過 400 字，依「四關進場決策」順序輸出）' + NL + NL +
     '## 🔍 一句話定調' + NL +
     '（用一句話總結目前籌碼狀態，並引用一句智慧庫名言點評）' + NL + NL +
@@ -22389,7 +22459,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── 版本戳（交付紀律：每次產出新檔即更新此行）──
 // ── 版本戳（交付紀律：每次產出新檔，版本號 +0.1、日期改為當天產出日，兩者一起改）──
-const APP_BUILD = 'v22.15（2026-08-14）';
+const APP_BUILD = 'v22.19（2026-08-14）';
 (function(){
   function stamp(){ document.querySelectorAll('.app-build').forEach(function(el){ el.textContent = APP_BUILD; }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',stamp); else stamp();
